@@ -1,6 +1,6 @@
 // frontend/src/components/RetroPage.js
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Typography,
   Box,
@@ -10,27 +10,94 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Column from './Column';
-import { io } from 'socket.io-client';
+import { useQuery, useMutation, gql } from '@apollo/client';
+
+// Define GraphQL queries and mutations
+const GET_RETRO_BY_ID = gql`
+  query GetRetroById($id: Int!) {
+    retroById(id: $id) {
+      id
+      retroName
+      creatorName
+      createdAt
+      users
+      cards {
+        good {
+          id
+          text
+        }
+        bad {
+          id
+          text
+        }
+        needsImprovement {
+          id
+          text
+        }
+      }
+    }
+  }
+`;
+
+const ADD_USER = gql`
+  mutation AddUser($retroId: Int!, $username: String!) {
+    addUser(retroId: $retroId, username: $username)
+  }
+`;
+
+const LEAVE_RETRO = gql`
+  mutation LeaveRetro($retroId: Int!, $username: String!) {
+    leaveRetro(input: { retroId: $retroId, username: $username })
+  }
+`;
+
+const ADD_CARD = gql`
+  mutation AddCard($input: AddCardInput!) {
+    addCard(input: $input) {
+      id
+      text
+    }
+  }
+`;
 
 const RetroPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [retroName, setRetroName] = useState('');
-  const [users, setUsers] = useState([]);
-  const [cards, setCards] = useState({
-    good: [],
-    bad: [],
-    needsImprovement: [],
-  });
   const [newCards, setNewCards] = useState({
-    good: '',
-    bad: '',
-    needsImprovement: '',
+    GOOD: '',
+    BAD: '',
+    NEEDS_IMPROVEMENT: '',
   });
 
   const username = sessionStorage.getItem('username');
-  const [socket, setSocket] = useState(null);
+
+  // Fetch retro details
+  const { loading, error, data, refetch } = useQuery(GET_RETRO_BY_ID, {
+    variables: { id: parseInt(id, 10) },
+    pollInterval: 5000, // Polling for real-time updates
+  });
+
+  // Mutation to add a user
+  const [addUser] = useMutation(ADD_USER, {
+    onCompleted: () => {
+      refetch();
+    },
+  });
+
+  // Mutation to leave retro
+  const [leaveRetro] = useMutation(LEAVE_RETRO, {
+    onCompleted: () => {
+      navigate('/');
+    },
+  });
+
+  // Mutation to add a card
+  const [addCard] = useMutation(ADD_CARD, {
+    onCompleted: () => {
+      refetch();
+    },
+  });
 
   useEffect(() => {
     if (!username) {
@@ -39,83 +106,43 @@ const RetroPage = () => {
       return;
     }
 
-    // Initialize Socket.io client
-    const newSocket = io('http://localhost:5000'); // Adjust if backend is hosted elsewhere
-    setSocket(newSocket);
-
-    // On connection, join the retro room
-    newSocket.on('connect', () => {
-      newSocket.emit('joinRetro', parseInt(id, 10), username);
-    });
-
-    // Listen for new cards
-    newSocket.on('newCard', (category, text) => {
-      setCards((prev) => ({
-        ...prev,
-        [category]: [...prev[category], text],
-      }));
-    });
-
-    // Listen for user updates
-    newSocket.on('updateUsers', (updatedUsers) => {
-      setUsers(updatedUsers);
-    });
-
-    // Cleanup on unmount
-    return () => {
-      newSocket.disconnect();
-    };
-  }, [id, username, navigate]);
-
-  useEffect(() => {
-    // Fetch retro details
-    fetch(`/api/retros`)
-      .then((res) => res.json())
-      .then((data) => {
-        const retro = data.find((r) => r.id === parseInt(id, 10));
-        if (retro) {
-          setRetroName(retro.retroName);
-          setCards(retro.cards);
-          setUsers(retro.users);
-        } else {
-          alert('Retro not found.');
-          navigate('/');
-        }
-      })
-      .catch((err) => console.error('Error fetching retro details:', err));
-  }, [id, navigate]);
-
-  useEffect(() => {
-    // Optional: Fetch initial cards if not already set
-    if (cards.good.length === 0 && cards.bad.length === 0 && cards.needsImprovement.length === 0) {
-      fetch(`/api/retros/${id}/cards`)
-        .then((res) => res.json())
-        .then((data) => setCards(data.cards))
-        .catch((err) => console.error('Error fetching cards:', err));
+    // Automatically add the user to the retro if not already a participant
+    if (data && data.retroById && !data.retroById.users.includes(username)) {
+      addUser({
+        variables: {
+          retroId: data.retroById.id,
+          username,
+        },
+      }).catch((err) => {
+        console.error('Error adding user:', err);
+        alert(err.message || 'Failed to join retro.');
+      });
     }
-  }, [id, cards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, username]);
 
-  const handleAddCard = (category) => {
-    const text = newCards[category].trim();
+  if (loading) return <Typography>Loading retro details...</Typography>;
+  if (error) return <Typography>Error loading retro details.</Typography>;
+
+  const retro = data.retroById;
+
+  const handleAddCard = (category, text) => {
     if (!text) {
       alert('Please enter some text for the card.');
       return;
     }
 
-    fetch(`/api/retros/${id}/cards`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, text }),
+    addCard({
+      variables: {
+        input: {
+          retroId: retro.id,
+          category,
+          text,
+        },
+      },
     })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((err) => { throw err; });
-        }
-        return res.json();
-      })
-      .then((data) => {
+      .then(() => {
         setNewCards((prev) => ({ ...prev, [category]: '' }));
-        // The new card will be added via the 'newCard' Socket.io event
       })
       .catch((err) => {
         console.error('Error adding card:', err);
@@ -124,21 +151,12 @@ const RetroPage = () => {
   };
 
   const handleLeaveRetro = () => {
-    fetch(`/api/retros/${id}/users`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username }),
+    leaveRetro({
+      variables: {
+        retroId: retro.id,
+        username,
+      },
     })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((err) => { throw err; });
-        }
-        return res.json();
-      })
-      .then((data) => {
-        // Navigate back to retro list
-        navigate('/');
-      })
       .catch((err) => {
         console.error('Error leaving retro:', err);
         alert(err.message || 'Failed to leave retro.');
@@ -147,11 +165,11 @@ const RetroPage = () => {
 
   return (
     <Box display="flex" height="100vh">
-      <Sidebar users={users} />
+      <Sidebar users={retro.users} />
 
       <Box flexGrow={1} p={4} overflow="auto">
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-          <Typography variant="h4">{retroName}</Typography>
+          <Typography variant="h4">{retro.retroName}</Typography>
           <Box display="flex" alignItems="center">
             <Typography variant="subtitle1" mr={2}>
               Welcome, {username}!
@@ -166,28 +184,30 @@ const RetroPage = () => {
           <Grid item xs={12} md={4}>
             <Column
               title="Good"
-              cards={cards.good}
+              cards={retro.cards.good}
               newCardText={newCards.good}
               onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, good: text }))}
-              onAddCard={() => handleAddCard('good')}
+              onAddCard={(text) => handleAddCard('GOOD', text)}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <Column
               title="Bad"
-              cards={cards.bad}
+              cards={retro.cards.bad}
               newCardText={newCards.bad}
               onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, bad: text }))}
-              onAddCard={() => handleAddCard('bad')}
+              onAddCard={(text) => handleAddCard('BAD', text)}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <Column
               title="Needs Improvement"
-              cards={cards.needsImprovement}
+              cards={retro.cards.needsImprovement}
               newCardText={newCards.needsImprovement}
-              onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, needsImprovement: text }))}
-              onAddCard={() => handleAddCard('needsImprovement')}
+              onNewCardTextChange={(text) =>
+                setNewCards((prev) => ({ ...prev, needsImprovement: text }))
+              }
+              onAddCard={(text) => handleAddCard('NEEDS_IMPROVEMENT', text)}
             />
           </Grid>
         </Grid>

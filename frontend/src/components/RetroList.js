@@ -1,6 +1,6 @@
 // frontend/src/components/RetroList.js
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   List,
   ListItem,
@@ -9,24 +9,58 @@ import {
   TextField,
   Box,
   Typography,
+  Paper,
 } from '@mui/material';
 import { Link } from 'react-router-dom';
+import { useQuery, useMutation, gql } from '@apollo/client';
+
+// Define GraphQL queries and mutations
+const GET_ALL_RETROS = gql`
+  query GetAllRetros {
+    allRetros {
+      id
+      retroName
+      creatorName
+      createdAt
+      users
+    }
+  }
+`;
+
+const CREATE_RETRO = gql`
+  mutation CreateRetro($input: CreateRetroInput!) {
+    createRetro(input: $input) {
+      id
+      retroName
+      creatorName
+      createdAt
+      users
+    }
+  }
+`;
 
 const RetroList = ({ username }) => {
-  const [retros, setRetros] = useState([]);
   const [newRetroName, setNewRetroName] = useState('');
 
-  const fetchRetros = () => {
-    fetch('/api/retros')
-      .then((res) => res.json())
-      .then((data) => setRetros(data))
-      .catch((err) => console.error('Error fetching retros:', err));
-  };
+  // Fetch all retros
+  const { loading, error, data } = useQuery(GET_ALL_RETROS, {
+    pollInterval: 5000, // Polling interval for real-time updates
+  });
 
-  useEffect(() => {
-    fetchRetros();
-    // Optionally, set up polling or WebSockets for real-time updates
-  }, []);
+  // Mutation to create a new retro
+  const [createRetro] = useMutation(CREATE_RETRO, {
+    // Update the cache to include the new retro
+    update(cache, { data: { createRetro } }) {
+      const { allRetros } = cache.readQuery({ query: GET_ALL_RETROS });
+      cache.writeQuery({
+        query: GET_ALL_RETROS,
+        data: { allRetros: [...allRetros, createRetro] },
+      });
+    },
+  });
+
+  if (loading) return <Typography>Loading retros...</Typography>;
+  if (error) return <Typography>Error fetching retros.</Typography>;
 
   const handleCreateRetro = () => {
     const trimmedName = newRetroName.trim();
@@ -35,20 +69,16 @@ const RetroList = ({ username }) => {
       return;
     }
 
-    fetch('/api/retros', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ retroName: trimmedName, creatorName: username }),
+    createRetro({
+      variables: {
+        input: {
+          retroName: trimmedName,
+          creatorName: username,
+        },
+      },
     })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((err) => { throw err; });
-        }
-        return res.json();
-      })
-      .then((newRetro) => {
+      .then(() => {
         setNewRetroName('');
-        setRetros([...retros, newRetro]);
       })
       .catch((err) => {
         console.error('Error creating retro:', err);
@@ -61,25 +91,27 @@ const RetroList = ({ username }) => {
       <Typography variant="h5" gutterBottom>
         Available Retrospectives
       </Typography>
-      <List>
-        {retros.length === 0 ? (
-          <Typography>No retrospectives available. Create one!</Typography>
-        ) : (
-          retros.map((retro) => (
-            <ListItem
-              key={retro.id}
-              button
-              component={Link}
-              to={`/retros/${retro.id}`}
-            >
-              <ListItemText
-                primary={retro.retroName}
-                secondary={`Created by: ${retro.creatorName}`}
-              />
-            </ListItem>
-          ))
-        )}
-      </List>
+      <Paper elevation={3} sx={{ maxHeight: 400, overflow: 'auto' }}>
+        <List>
+          {data.allRetros.length === 0 ? (
+            <Typography p={2}>No retrospectives available. Create one!</Typography>
+          ) : (
+            data.allRetros.map((retro) => (
+              <ListItem
+                key={retro.id}
+                button
+                component={Link}
+                to={`/retros/${retro.id}`}
+              >
+                <ListItemText
+                  primary={retro.retroName}
+                  secondary={`Created by: ${retro.creatorName}`}
+                />
+              </ListItem>
+            ))
+          )}
+        </List>
+      </Paper>
 
       <Box mt={4}>
         <Typography variant="h5" gutterBottom>
@@ -91,6 +123,9 @@ const RetroList = ({ username }) => {
             variant="outlined"
             value={newRetroName}
             onChange={(e) => setNewRetroName(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') handleCreateRetro();
+            }}
             fullWidth
             sx={{ mr: 2 }}
           />

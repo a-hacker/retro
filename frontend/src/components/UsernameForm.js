@@ -16,6 +16,12 @@ const UsernameForm = ({ onSave }) => {
     }
   };
 
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSave();
+    }
+  };
+
   return (
     <Box display="flex" flexDirection="column" alignItems="center" mt={4}>
       <TextField
@@ -23,6 +29,7 @@ const UsernameForm = ({ onSave }) => {
         variant="outlined"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
+        onKeyPress={handleKeyPress}
         fullWidth
         sx={{ maxWidth: 400 }}
       />

@@ -11,8 +11,8 @@ const Column = ({ title, cards, newCardText, onNewCardTextChange, onAddCard }) =
         {title}
       </Typography>
       <List sx={{ minHeight: 200, maxHeight: 400, overflow: 'auto' }}>
-        {cards.map((card, index) => (
-          <CardComponent key={index} text={card} />
+        {cards.map((card) => (
+          <CardComponent key={card.id} text={card.text} />
         ))}
       </List>
       <Box display="flex" mt={2}>
@@ -24,7 +24,7 @@ const Column = ({ title, cards, newCardText, onNewCardTextChange, onAddCard }) =
           onChange={(e) => onNewCardTextChange(e.target.value)}
           fullWidth
         />
-        <Button variant="contained" color="primary" onClick={onAddCard} sx={{ ml: 1 }}>
+        <Button variant="contained" color="primary" onClick={() => onAddCard(newCardText)} sx={{ ml: 1 }}>
           Add
         </Button>
       </Box>

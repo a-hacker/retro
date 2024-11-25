@@ -2,21 +2,24 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Container, CssBaseline } from '@mui/material';
+import { CssBaseline, Container } from '@mui/material';
 import HomePage from './components/HomePage';
 import RetroPage from './components/RetroPage';
+import ApolloProvider from './ApolloProvider'; // Import the ApolloProvider
 
 function App() {
   return (
-    <Router>
-      <CssBaseline />
-      <Container maxWidth="lg">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/retros/:id" element={<RetroPage />} />
-        </Routes>
-      </Container>
-    </Router>
+    <ApolloProvider>
+      <Router>
+        <CssBaseline />
+        <Container maxWidth="xl" disableGutters>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/retros/:id" element={<RetroPage />} />
+          </Routes>
+        </Container>
+      </Router>
+    </ApolloProvider>
   );
 }
 
