@@ -3,13 +3,27 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { Server } = require('socket.io');
+const http = require('http');
 
 const app = express();
-const PORT = 5000; // Changed to 5000 to avoid conflict with React's default port 3000
+const PORT = 5000; // Backend runs on port 5000
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize Socket.io
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:3000', // React app runs on port 3000
+    methods: ['GET', 'POST', 'DELETE'],
+  },
+});
 
 // Middleware
 app.use(cors({
   origin: 'http://localhost:3000', // Allow React app to communicate
+  methods: ['GET', 'POST', 'DELETE'],
 }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -25,6 +39,35 @@ let retros = [];
 function findRetroById(id) {
   return retros.find(retro => retro.id === id) || null;
 }
+
+// Socket.io connection handling
+io.on('connection', (socket) => {
+  console.log('A user connected:', socket.id);
+
+  // Join a retro room
+  socket.on('joinRetro', (retroId, username) => {
+    socket.join(`retro_${retroId}`);
+    const retro = findRetroById(retroId);
+    retro.users.push(username);
+    console.log(`${username} joined retro ${retroId}`);
+  });
+
+  // Handle adding a new card
+  socket.on('addCard', (retroId, category, text) => {
+    const retro = findRetroById(retroId);
+    if (retro && retro.cards[category]) {
+      retro.cards[category].push(text);
+      // Emit to all clients in the retro room
+      io.to(`retro_${retroId}`).emit('newCard', category, text);
+    }
+  });
+
+  // Handle user disconnection (Optional: Remove user from all retros)
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+    // Implement user removal logic if tracking socket-user associations
+  });
+});
 
 // API Endpoints
 
@@ -91,6 +134,8 @@ app.post('/api/retros/:id/users', (req, res) => {
   // Add user to retro if not already present
   if (!retro.users.includes(username)) {
     retro.users.push(username);
+    // Emit updated users list to all clients in the retro room
+    io.to(`retro_${retroId}`).emit('updateUsers', retro.users);
   }
 
   res.status(200).json({ users: retro.users });
@@ -152,24 +197,52 @@ app.post('/api/retros/:id/cards', (req, res) => {
   // Add the card to the specified category
   retro.cards[category].push(text);
 
+  // Emit new card to retro room
+  io.to(`retro_${retroId}`).emit('newCard', category, text);
+
   res.status(201).json({ category, text });
 });
 
 /**
- * Fallback route to serve index.html for any undefined routes except /retros/:id
+ * DELETE /api/retros/:id/users
+ * Removes a user from a specific retro.
+ * Expects { username: String } in the request body.
  */
-app.get('*', (req, res) => {
-  const urlPath = req.path;
-  const retroPathRegex = /^\/retros\/\d+$/;
+app.delete('/api/retros/:id/users', (req, res) => {
+  const retroId = parseInt(req.params.id, 10);
+  const { username } = req.body;
 
-  if (retroPathRegex.test(urlPath)) {
-    res.sendFile(path.join(__dirname, 'public', 'retro.html'));
+  if (!username) {
+    return res.status(400).json({ message: 'Username is required.' });
+  }
+
+  const retro = findRetroById(retroId);
+  if (!retro) {
+    return res.status(404).json({ message: 'Retro not found.' });
+  }
+
+  const userIndex = retro.users.indexOf(username);
+  if (userIndex > -1) {
+    retro.users.splice(userIndex, 1);
+
+    // Emit updated users list to all clients in the retro room
+    io.to(`retro_${retroId}`).emit('updateUsers', retro.users);
+
+    res.status(200).json({ users: retro.users });
   } else {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.status(404).json({ message: 'User not found in this retro.' });
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
+/**
+ * Fallback route to serve React's index.html for any non-API routes.
+ * This allows React Router to handle client-side routing.
+ */
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Start the server with Socket.io
+server.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });

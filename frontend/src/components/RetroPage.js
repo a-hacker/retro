@@ -5,16 +5,12 @@ import {
   Typography,
   Box,
   Grid,
-  Paper,
-  TextField,
   Button,
-  List,
-  ListItem,
-  ListItemText,
 } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Column from './Column';
+import { io } from 'socket.io-client';
 
 const RetroPage = () => {
   const { id } = useParams();
@@ -34,23 +30,44 @@ const RetroPage = () => {
   });
 
   const username = sessionStorage.getItem('username');
+  const [socket, setSocket] = useState(null);
 
   useEffect(() => {
     if (!username) {
       alert('Username not found. Please set your username on the homepage.');
       navigate('/');
+      return;
     }
 
-    // Add user to retro
-    fetch(`/api/retros/${id}/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username }),
-    })
-      .then((res) => res.json())
-      .then((data) => setUsers(data.users))
-      .catch((err) => console.error('Error adding user to retro:', err));
+    // Initialize Socket.io client
+    const newSocket = io('http://localhost:5000'); // Adjust if backend is hosted elsewhere
+    setSocket(newSocket);
 
+    // On connection, join the retro room
+    newSocket.on('connect', () => {
+      newSocket.emit('joinRetro', parseInt(id, 10), username);
+    });
+
+    // Listen for new cards
+    newSocket.on('newCard', (category, text) => {
+      setCards((prev) => ({
+        ...prev,
+        [category]: [...prev[category], text],
+      }));
+    });
+
+    // Listen for user updates
+    newSocket.on('updateUsers', (updatedUsers) => {
+      setUsers(updatedUsers);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      newSocket.disconnect();
+    };
+  }, [id, username, navigate]);
+
+  useEffect(() => {
     // Fetch retro details
     fetch(`/api/retros`)
       .then((res) => res.json())
@@ -59,28 +76,24 @@ const RetroPage = () => {
         if (retro) {
           setRetroName(retro.retroName);
           setCards(retro.cards);
+          setUsers(retro.users);
         } else {
           alert('Retro not found.');
           navigate('/');
         }
       })
       .catch((err) => console.error('Error fetching retro details:', err));
+  }, [id, navigate]);
 
-    // Optionally, set up real-time updates with WebSockets or polling
-    const interval = setInterval(() => {
-      fetch(`/api/retros/${id}/users`)
-        .then((res) => res.json())
-        .then((data) => setUsers(data.users))
-        .catch((err) => console.error('Error fetching users:', err));
-
+  useEffect(() => {
+    // Optional: Fetch initial cards if not already set
+    if (cards.good.length === 0 && cards.bad.length === 0 && cards.needsImprovement.length === 0) {
       fetch(`/api/retros/${id}/cards`)
         .then((res) => res.json())
         .then((data) => setCards(data.cards))
         .catch((err) => console.error('Error fetching cards:', err));
-    }, 5000); // Update every 5 seconds
-
-    return () => clearInterval(interval);
-  }, [id, username, navigate]);
+    }
+  }, [id, cards]);
 
   const handleAddCard = (category) => {
     const text = newCards[category].trim();
@@ -94,23 +107,42 @@ const RetroPage = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category, text }),
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          return res.json().then((err) => { throw err; });
+        }
+        return res.json();
+      })
       .then((data) => {
-        setCards((prev) => ({
-          ...prev,
-          [category]: [...prev[category], data.text],
-        }));
         setNewCards((prev) => ({ ...prev, [category]: '' }));
+        // The new card will be added via the 'newCard' Socket.io event
       })
       .catch((err) => {
         console.error('Error adding card:', err);
-        alert('Failed to add card.');
+        alert(err.message || 'Failed to add card.');
       });
   };
 
   const handleLeaveRetro = () => {
-    sessionStorage.removeItem('username');
-    navigate('/');
+    fetch(`/api/retros/${id}/users`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          return res.json().then((err) => { throw err; });
+        }
+        return res.json();
+      })
+      .then((data) => {
+        // Navigate back to retro list
+        navigate('/');
+      })
+      .catch((err) => {
+        console.error('Error leaving retro:', err);
+        alert(err.message || 'Failed to leave retro.');
+      });
   };
 
   return (
