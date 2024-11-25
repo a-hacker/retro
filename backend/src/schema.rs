@@ -1,9 +1,14 @@
 // src/schema.rs
 
-use juniper::{EmptySubscription, RootNode};
-use crate::models::{Retro, Card, Cards};
+use futures::TryStreamExt;
+use juniper::{RootNode, ToInputValue, graphql_subscription};
+use crate::models::{Retro, SharedRetros, Card, Cards, SubscriptionUpdate, CardAdded, UserListUpdated};
 use crate::context::Context;
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
 use chrono::prelude::*;
+use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
 
 // GraphQL representation of a Card
 #[juniper::graphql_object]
@@ -61,24 +66,6 @@ impl Retro {
     }
 }
 
-// Root Query object
-pub struct QueryRoot;
-
-#[juniper::graphql_object(context = Context)]
-impl QueryRoot {
-    // Fetch all retrospectives
-    fn all_retros(context: &Context) -> Vec<Retro> {
-        let retros = context.retros.read().unwrap();
-        retros.clone()
-    }
-
-    // Fetch a specific retro by ID
-    fn retro_by_id(context: &Context, id: i32) -> Option<Retro> {
-        let retros = context.retros.read().unwrap();
-        retros.iter().find(|retro| retro.id == id).cloned()
-    }
-}
-
 // Input types for mutations
 #[derive(juniper::GraphQLEnum)]
 pub enum Category {
@@ -106,6 +93,72 @@ pub struct LeaveRetroInput {
     pub username: String,
 }
 
+// Subscription root
+type SubStream = Pin<Box<dyn futures::Stream<Item = SubscriptionUpdate> + Send>>;
+
+pub struct SubscriptionRoot;
+
+#[graphql_subscription(context = Context)]
+impl SubscriptionRoot {
+    // Subscription for added cards
+    async fn card_added(context: &Context, retro_id: i32) -> SubStream {
+        let rx = context.card_addition_sender.subscribe();
+
+        let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
+            .filter_map(move |result| {
+                match result {
+                    Ok(update) => {
+                        match update.clone() {
+                            SubscriptionUpdate::CardAdded (card) if card.retro_id == retro_id => Some(update),
+                            _ => None,
+                        }
+                    }
+                    Err(_) => None,
+                }
+            });
+
+        Box::pin(stream)
+    }
+
+    // Subscription for user list updates
+    async fn user_list_updated(context: &Context, retro_id: i32) -> SubStream {
+        let rx = context.user_update_sender.subscribe();
+
+        let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
+            .filter_map(move |result| {
+                match result {
+                    Ok(update) => {
+                        match update.clone() {
+                            SubscriptionUpdate::UserListUpdated(u) if u.retro_id == retro_id => Some(update),
+                            _ => None,
+                        }
+                    }
+                    Err(_) => None,
+                }
+            });
+
+        Box::pin(stream)
+    }
+}
+
+// Root Query object
+pub struct QueryRoot;
+
+#[juniper::graphql_object(context = Context)]
+impl QueryRoot {
+    // Fetch all retrospectives
+    fn all_retros(context: &Context) -> Vec<Retro> {
+        let retros = context.retros.read().unwrap();
+        retros.clone()
+    }
+
+    // Fetch a specific retro by ID
+    fn retro_by_id(context: &Context, id: i32) -> Option<Retro> {
+        let retros = context.retros.read().unwrap();
+        retros.iter().find(|retro| retro.id == id).cloned()
+    }
+}
+
 // Root Mutation object
 pub struct MutationRoot;
 
@@ -131,6 +184,13 @@ impl MutationRoot {
         };
 
         retros.push(new_retro.clone());
+
+        // Broadcast user list update for the new retro (initially empty)
+        let _ = context.user_update_sender.send(SubscriptionUpdate::UserListUpdated ( UserListUpdated {
+            retro_id: new_retro.id,
+            users: new_retro.users.clone(),
+        }));
+
         new_retro
     }
 
@@ -140,8 +200,13 @@ impl MutationRoot {
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
             if !retro.users.contains(&username) {
                 retro.users.push(username.clone());
+
+                // Broadcast user list update
+                let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
+                    retro_id,
+                    retro.users.clone(),
+                ));
             }
-            // Ideally, emit an event for real-time updates here
             retro.users.clone()
         } else {
             vec![]
@@ -153,7 +218,13 @@ impl MutationRoot {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == input.retro_id) {
             retro.users.retain(|user| user != &input.username);
-            // Ideally, emit an event for real-time updates here
+
+            // Broadcast user list update
+            let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
+                retro.id,
+                retro.users.clone(),
+            ));
+
             retro.users.clone()
         } else {
             vec![]
@@ -176,7 +247,19 @@ impl MutationRoot {
                 Category::NeedsImprovement => retro.cards.needs_improvement.push(new_card.clone()),
             }
 
-            // Ideally, emit an event for real-time updates here
+            // Broadcast card addition
+            let category_str = match input.category {
+                Category::Good => "GOOD",
+                Category::Bad => "BAD",
+                Category::NeedsImprovement => "NEEDS_IMPROVEMENT",
+            };
+
+            let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
+                retro.id,
+                category_str.to_string(),
+                new_card.clone(),
+            ));
+
             Some(new_card)
         } else {
             None
@@ -185,8 +268,8 @@ impl MutationRoot {
 }
 
 // Define the schema
-pub type Schema = RootNode<'static, QueryRoot, MutationRoot, EmptySubscription<Context>>;
+pub type Schema = RootNode<'static, QueryRoot, MutationRoot, SubscriptionRoot>;
 
 pub fn create_schema() -> Schema {
-    Schema::new(QueryRoot, MutationRoot, EmptySubscription::new())
+    Schema::new(QueryRoot, MutationRoot, SubscriptionRoot)
 }

@@ -11,6 +11,11 @@ juniper = "0.16.0"
 juniper_rocket = "0.9.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-chrono = "0.4.38"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+chrono = { version = "0.4", features = ["serde"] }
 rocket_cors = "0.6.0"
+futures = "0.3"
+juniper_graphql_ws = { version = "0.4", features = ["graphql-transport-ws"] }
+tokio-stream = { version = "0.1.16", features = ["sync"] }
+tokio-tungstenite = "0.24.0"
+tungstenite = "0.24.0"
