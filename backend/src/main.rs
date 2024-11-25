@@ -14,6 +14,13 @@ use context::Context;
 use juniper_rocket::{GraphQLResponse, GraphQLRequest};
 use models::SharedRetros;
 use std::sync::{Arc, RwLock};
+use tokio::sync::broadcast;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio::net::TcpListener;
+use tokio_stream::StreamExt;
+use futures::{SinkExt, Stream};
+use rocket::tokio::select;
+use juniper_graphql_ws::graphql_transport_ws::Connection;
 
 #[launch]
 fn rocket() -> _ {
@@ -45,7 +52,7 @@ fn rocket() -> _ {
         .mount(
             "/",
             routes![
-                graphql_handler, graphiql_handler
+                graphql_handler, graphiql_handler, subscriptions_handler
             ]
         )
 }
@@ -61,5 +68,57 @@ async fn graphql_handler(
 
 #[get("/graphiql")]
 fn graphiql_handler() -> RawHtml<String> {
-    juniper_rocket::graphiql_source("/graphql", None)
+    juniper_rocket::graphiql_source("/graphql", Some("/subscriptions"))
+}
+
+
+#[get("/subscriptions")]
+fn subscriptions_handler(
+    schema: &State<Schema>,
+    context: &State<Context>,
+    ws: rocket_ws::WebSocket
+) -> rocket_ws::Stream!['static] {
+    let mut rx_card = context.card_addition_sender.subscribe();
+    let mut rx_user = context.user_update_sender.subscribe();
+
+    let conn_config = juniper_graphql_ws::ConnectionConfig::new(*(context.inner().clone()));
+    let schema = Arc::new(*schema.inner());
+
+    let conn= Connection::new(schema, conn_config);
+
+    let sock = ws.config(rocket_ws::Config {
+        ..Default::default()
+    });
+
+    rocket_ws::Stream! { sock =>
+        loop {
+            select! {
+                result = rx_card.recv() => {
+                    match result {
+                        Ok(update) => {
+                            let message = serde_json::to_string(&update).unwrap();
+                            yield rocket_ws::Message::Text(message);
+                        },
+                        Err(e) => {
+                            eprintln!("Error receiving card update: {}", e);
+                            break;
+                        }
+                    }
+                },
+                result = rx_user.recv() => {
+                    match result {
+                        Ok(update) => {
+                            let message = serde_json::to_string(&update).unwrap();
+                            yield rocket_ws::Message::Text(message);
+                        },
+                        Err(e) => {
+                            eprintln!("Error receiving user update: {}", e);
+                            break;
+                        }
+                    }
+                },
+                else => break,
+            }
+        }
+    }
 }

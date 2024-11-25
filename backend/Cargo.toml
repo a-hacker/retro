@@ -19,3 +19,4 @@ juniper_graphql_ws = { version = "0.4", features = ["graphql-transport-ws"] }
 tokio-stream = { version = "0.1.16", features = ["sync"] }
 tokio-tungstenite = "0.24.0"
 tungstenite = "0.24.0"
+rocket_ws = "0.1.1"
