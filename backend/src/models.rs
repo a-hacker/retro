@@ -1,47 +1,68 @@
-use juniper::{GraphQLObject, GraphQLUnion};
+use juniper::{GraphQLObject, GraphQLUnion, GraphQLEnum};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
+use uuid::Uuid;
 
-// Represents a Card in a Retro
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, GraphQLObject)]
+pub struct User {
+    pub id: Uuid,
+    pub username: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Card {
-    pub id: i32,
+    pub id: Uuid,
+    pub creator_id: Uuid,
     pub text: String,
+    pub votes: i32,
+    pub subcards: Vec<Card>
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, GraphQLEnum)]
+pub enum RetroStep {
+    Writing,
+    Grouping,
+    Voting,
+    Reviewing,
 }
 
 // Represents a Retro
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Retro {
-    pub id: i32,
+    pub id: Uuid,
     pub retro_name: String,
-    pub creator_name: String,
+    pub creator_id: Uuid,
+    pub step: RetroStep,
     pub created_at: String, // ISO 8601 format
-    pub users: Vec<String>,
-    pub cards: Cards,
+    pub users: Vec<Uuid>,
+    pub lanes: Vec<Lane>,
 }
 
 // Categorized Cards within a Retro
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Cards {
-    pub good: Vec<Card>,
-    pub bad: Vec<Card>,
-    pub needs_improvement: Vec<Card>,
+pub struct Lane {
+    pub id: Uuid,
+    pub title: String,
+    pub cards: Vec<Card>,
+    pub priority: i32,
 }
 
 // Shared State: In-memory storage using Arc and RwLock for thread safety
 pub type SharedRetros = Arc<RwLock<Vec<Retro>>>;
+pub type SharedUsers = Arc<RwLock<HashMap<Uuid, User>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, GraphQLObject)]
 pub struct CardAdded {
-    pub retro_id: i32,
-    pub category: String,
+    pub retro_id: Uuid,
+    pub lane_id: Uuid,
     pub card: Card,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, GraphQLObject)]
 pub struct UserListUpdated {
-    pub retro_id: i32,
-    pub users: Vec<String>,
+    pub retro_id: Uuid,
+    pub users: Vec<Uuid>,
 }
 
 
@@ -52,15 +73,15 @@ pub enum SubscriptionUpdate {
 }
 
 impl SubscriptionUpdate {
-    pub fn create_card_added(retro_id: i32, category: String, card: Card) -> Self {
+    pub fn create_card_added(retro_id: Uuid, lane_id: Uuid, card: Card) -> Self {
         let card_added = CardAdded {
-            retro_id, category, card
+            retro_id, lane_id, card
         };
 
         Self::CardAdded(card_added)
     }
 
-    pub fn create_user_list_update(retro_id: i32, users: Vec<String>) -> Self {
+    pub fn create_user_list_update(retro_id: Uuid, users: Vec<Uuid>) -> Self {
         let user_list_update = UserListUpdated {
             retro_id, users
         };

@@ -2,7 +2,7 @@ mod models;
 mod schema;
 mod context;
 
-use std::{env, sync::{Arc, RwLock}, time::Duration};
+use std::{collections::HashMap, env, sync::{Arc, RwLock}, time::Duration};
 
 use actix_cors::Cors;
 use actix_web::{
@@ -16,7 +16,7 @@ use context::Context;
 use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 
-use models::SharedRetros;
+use models::{SharedRetros, SharedUsers};
 use schema::{create_schema, Schema};
 
 async fn playground() -> Result<HttpResponse, Error> {
@@ -70,9 +70,10 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     let retros: SharedRetros = Arc::new(RwLock::new(vec![]));
+    let users: SharedUsers = Arc::new(RwLock::new(HashMap::new()));
     let schema = Arc::new(create_schema());
 
-    let context = Arc::new(Context::new(retros.clone()));
+    let context = Arc::new(Context::new(retros.clone(), users.clone()));
 
     HttpServer::new(move || {
         App::new()

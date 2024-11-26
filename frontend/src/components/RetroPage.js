@@ -15,24 +15,21 @@ import { useSnackbar } from 'notistack';
 
 // Define GraphQL queries and mutations
 const GET_RETRO_BY_ID = gql`
-  query GetRetroById($id: Int!) {
+  query GetRetroById($id: Uuid!) {
     retroById(id: $id) {
       id
       retroName
-      creatorName
+      creatorId
+      step
       createdAt
       users
-      cards {
-        good {
+      lanes {
+        id
+        title
+        priority
+        cards {
           id
-          text
-        }
-        bad {
-          id
-          text
-        }
-        needsImprovement {
-          id
+          creatorId
           text
         }
       }
@@ -41,14 +38,14 @@ const GET_RETRO_BY_ID = gql`
 `;
 
 const ADD_USER = gql`
-  mutation AddUser($retroId: Int!, $username: String!) {
-    addUser(retroId: $retroId, username: $username)
+  mutation AddUser($retroId: Uuid!, $userId: Uuid!) {
+    enterRetro(retroId: $retroId, userId: $userId)
   }
 `;
 
 const LEAVE_RETRO = gql`
-  mutation LeaveRetro($retroId: Int!, $username: String!) {
-    leaveRetro(input: { retroId: $retroId, username: $username })
+  mutation LeaveRetro($retroId: Uuid!, $userId: Uuid!) {
+    leaveRetro(retroId: $retroId, userId: $userId)
   }
 `;
 
@@ -56,19 +53,21 @@ const ADD_CARD = gql`
   mutation AddCard($input: AddCardInput!) {
     addCard(input: $input) {
       id
+      creatorId
       text
     }
   }
 `;
 
 const CARD_ADDED_SUBSCRIPTION = gql`
-  subscription OnCardAdded($retroId: Int!) {
+  subscription OnCardAdded($retroId: Uuid!) {
     cardAdded(retroId: $retroId) {
       ... on CardAdded {
         retroId
-        category
+        laneId
         card {
           id
+          creatorId
           text
         }
       }
@@ -77,7 +76,7 @@ const CARD_ADDED_SUBSCRIPTION = gql`
 `;
 
 const USER_LIST_UPDATED_SUBSCRIPTION = gql`
-  subscription OnUserListUpdated($retroId: Int!) {
+  subscription OnUserListUpdated($retroId: Uuid!) {
     userListUpdated(retroId: $retroId) {
       ... on UserListUpdated {
         users
@@ -86,15 +85,11 @@ const USER_LIST_UPDATED_SUBSCRIPTION = gql`
   }
 `;
 
-const CardBox = ({ retro, username, subscribeToNewCards, handleLeaveRetro }) => {
+const CardBox = ({ retro, username, user_id, subscribeToNewCards, handleLeaveRetro }) => {
   useEffect(() => subscribeToNewCards(), [subscribeToNewCards]);
   const { enqueueSnackbar } = useSnackbar();
 
-  const [newCards, setNewCards] = useState({
-    GOOD: '',
-    BAD: '',
-    NEEDS_IMPROVEMENT: '',
-  });
+  const [newCards, setNewCards] = useState({});
 
   // Mutation to add a card
   const [addCard] = useMutation(ADD_CARD, {
@@ -106,7 +101,7 @@ const CardBox = ({ retro, username, subscribeToNewCards, handleLeaveRetro }) => 
     },
   });
 
-  const handleAddCard = (category, text) => {
+  const handleAddCard = (laneId, text) => {
     if (!text) {
       enqueueSnackbar('Please enter some text for the card.', { variant: 'warning' });
       return;
@@ -116,13 +111,14 @@ const CardBox = ({ retro, username, subscribeToNewCards, handleLeaveRetro }) => 
       variables: {
         input: {
           retroId: retro.id,
-          category,
+          laneId,
+          creatorId: user_id,
           text,
         },
       },
     })
       .then(() => {
-        setNewCards((prev) => ({ ...prev, [category]: '' }));
+        setNewCards((prev) => ({ ...prev, [laneId]: '' }));
       })
       .catch((err) => {
         console.error('Error adding card:', err);
@@ -144,35 +140,17 @@ const CardBox = ({ retro, username, subscribeToNewCards, handleLeaveRetro }) => 
       </Box>
 
       <Grid container spacing={4}>
-        <Grid item xs={12} md={4}>
-          <Column
-            title="Good"
-            cards={retro.cards.good}
-            newCardText={newCards.good}
-            onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, good: text }))}
-            onAddCard={(text) => handleAddCard('GOOD', text)}
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Column
-            title="Bad"
-            cards={retro.cards.bad}
-            newCardText={newCards.bad}
-            onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, bad: text }))}
-            onAddCard={(text) => handleAddCard('BAD', text)}
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Column
-            title="Needs Improvement"
-            cards={retro.cards.needsImprovement}
-            newCardText={newCards.needsImprovement}
-            onNewCardTextChange={(text) =>
-              setNewCards((prev) => ({ ...prev, needsImprovement: text }))
-            }
-            onAddCard={(text) => handleAddCard('NEEDS_IMPROVEMENT', text)}
-          />
-        </Grid>
+        {retro.lanes.map((lane, i) => 
+          <Grid item xs={12} md={4}>
+            <Column
+              title={lane.title}
+              cards={lane.cards}
+              newCardText={newCards[lane.id]}
+              onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, [lane.id]: text }))}
+              onAddCard={(text) => handleAddCard(lane.id, text)}
+            />
+          </Grid>
+        )}
       </Grid>
     </Box>
   )
@@ -184,10 +162,11 @@ const RetroPage = () => {
   const { enqueueSnackbar } = useSnackbar();
 
   const username = sessionStorage.getItem('username');
+  const user_id = sessionStorage.getItem('userid');
 
   // Fetch retro details
   const { loading, error, data, subscribeToMore } = useQuery(GET_RETRO_BY_ID, {
-    variables: { id: parseInt(id, 10) }
+    variables: { id }
   });
 
   // Mutation to add a user
@@ -217,11 +196,11 @@ const RetroPage = () => {
     const retro = data.retroById;
 
     // Automatically add the user to the retro if not already a participant
-    if (!retro.users.includes(username)) {
+    if (!retro.users.includes(user_id)) {
       addUser({
         variables: {
           retroId: retro.id,
-          username,
+          userId: user_id,
         },
       });
     }
@@ -256,21 +235,18 @@ const RetroPage = () => {
     updateQuery: (prev, { subscriptionData }) => {
       if (!subscriptionData.data || !subscriptionData.data.cardAdded) return prev;
 
-      let newCategory = subscriptionData.data.cardAdded.category.toLowerCase();
-      if (newCategory === "needs_improvement") {
-        newCategory = "needsImprovement"
-      }
+      let cardLaneId = subscriptionData.data.cardAdded.laneId;
       let newCard = subscriptionData.data.cardAdded.card;
-      let currentCards = prev.retroById.cards;
-
-      let newCardsCategory = [...currentCards[newCategory], newCard];
-
-      let newCards =  Object.assign({}, currentCards)
-      newCards[newCategory] = newCardsCategory;
+      
+      let currentLanes = prev.retroById.lanes;
+      let cardLane = currentLanes.filter((l) => l.id === cardLaneId)[0]
+      let newLaneCards = [...cardLane.cards, newCard];
+      let newLane = Object.assign({}, cardLane, {cards: newLaneCards})
+      let newLanes = currentLanes.map((l) => l.id === cardLaneId ? newLane : l)
 
       let newRetro = Object.assign({}, prev, {
         retroById: Object.assign({}, prev.retroById, {
-          cards: newCards
+          lanes: newLanes
         })
       })
 
@@ -282,7 +258,7 @@ const RetroPage = () => {
     leaveRetro({
       variables: {
         retroId: retro.id,
-        username,
+        userId: user_id,
       },
     })
       .catch((err) => {
@@ -292,8 +268,8 @@ const RetroPage = () => {
   };
 
   let users;
-  if (!retro.users.includes(username)) {
-    users = [...retro.users, username]
+  if (!retro.users.includes(user_id)) {
+    users = [...retro.users, user_id]
   } else {
     users = retro.users
   }
@@ -301,7 +277,7 @@ const RetroPage = () => {
   return (
     <Box display="flex" height="100vh">
       <Sidebar users={users} subscribeToUsers={subscribeUsers}/>
-      <CardBox retro={retro} username={username} handleLeaveRetro={handleLeaveRetro} subscribeToNewCards={subscribeToCards} />
+      <CardBox retro={retro} username={username} user_id={user_id} handleLeaveRetro={handleLeaveRetro} subscribeToNewCards={subscribeToCards} />
     </Box>
   );
 };

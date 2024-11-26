@@ -7,16 +7,20 @@ import RetroList from './RetroList';
 
 const HomePage = () => {
   const [username, setUsername] = useState('');
+  const [user_id, setUserId] = useState('');
 
   useEffect(() => {
     const savedUsername = sessionStorage.getItem('username');
+    const savedUserId = sessionStorage.getItem('userid');
     if (savedUsername) {
       setUsername(savedUsername);
+      setUserId(savedUserId)
     }
   }, []);
 
-  const handleSaveUsername = (name) => {
+  const handleSaveUsername = (name, id) => {
     setUsername(name);
+    setUserId(id)
   };
 
   return (
@@ -30,7 +34,7 @@ const HomePage = () => {
       ) : (
         <Box mt={4}>
           <Typography variant="h6">Welcome, {username}!</Typography>
-          <RetroList username={username} />
+          <RetroList username={username} user_id={user_id} />
         </Box>
       )}
     </Box>

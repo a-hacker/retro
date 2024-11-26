@@ -1,42 +1,59 @@
 use juniper::{RootNode, graphql_subscription};
-use crate::models::{Retro, Card, Cards, SubscriptionUpdate, UserListUpdated};
+use crate::models::{Retro, RetroStep, Card, Lane, SubscriptionUpdate, User, UserListUpdated};
 use crate::context::Context;
 use std::pin::Pin;
 use chrono::prelude::*;
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 // GraphQL representation of a Card
 #[juniper::graphql_object]
 impl Card {
-    fn id(&self) -> i32 {
+    fn id(&self) -> Uuid {
         self.id
     }
 
     fn text(&self) -> &str {
         &self.text
     }
+
+    fn creator_id(&self) -> Uuid {
+        self.creator_id
+    }
+
+    fn votes(&self) -> i32 {
+        self.votes
+    }
+
+    fn subcards(&self) -> &Vec<Card> {
+        &self.subcards
+    }
 }
 
 // GraphQL representation of Cards
 #[juniper::graphql_object]
-impl Cards {
-    fn good(&self) -> &Vec<Card> {
-        &self.good
+impl Lane {
+    fn id(&self) -> Uuid {
+        self.id
     }
 
-    fn bad(&self) -> &Vec<Card> {
-        &self.bad
+    fn title(&self) -> &str {
+        &self.title
     }
 
-    fn needs_improvement(&self) -> &Vec<Card> {
-        &self.needs_improvement
+    fn cards(&self) -> &Vec<Card> {
+        &self.cards
+    }
+
+    fn priority(&self) -> i32 {
+        self.priority
     }
 }
 
 // GraphQL representation of a Retro
 #[juniper::graphql_object(context = Context)]
 impl Retro {
-    fn id(&self) -> i32 {
+    fn id(&self) -> Uuid {
         self.id
     }
 
@@ -44,48 +61,50 @@ impl Retro {
         &self.retro_name
     }
 
-    fn creator_name(&self) -> &str {
-        &self.creator_name
+    fn step(&self) -> &RetroStep {
+        &self.step
+    }
+
+    fn creator_id(&self) -> &Uuid {
+        &self.creator_id
     }
 
     fn created_at(&self) -> &str {
         &self.created_at
     }
 
-    fn users(&self) -> &Vec<String> {
+    fn users(&self) -> &Vec<Uuid> {
         &self.users
     }
 
-    fn cards(&self) -> &Cards {
-        &self.cards
+    fn lanes(&self) -> &Vec<Lane> {
+        &self.lanes
     }
 }
 
-// Input types for mutations
-#[derive(juniper::GraphQLEnum)]
-pub enum Category {
-    Good,
-    Bad,
-    NeedsImprovement,
+#[derive(juniper::GraphQLInputObject)]
+pub struct CreateUserInput {
+    pub username: String,
 }
 
 #[derive(juniper::GraphQLInputObject)]
 pub struct CreateRetroInput {
     pub retro_name: String,
-    pub creator_name: String,
+    pub creator_id: Uuid,
 }
 
 #[derive(juniper::GraphQLInputObject)]
 pub struct AddCardInput {
-    pub retro_id: i32,
-    pub category: Category,
+    pub retro_id: Uuid,
+    pub lane_id: Uuid,
+    pub creator_id: Uuid,
     pub text: String,
 }
 
 #[derive(juniper::GraphQLInputObject)]
 pub struct LeaveRetroInput {
-    pub retro_id: i32,
-    pub username: String,
+    pub retro_id: Uuid,
+    pub user_id: Uuid,
 }
 
 // Subscription root
@@ -96,7 +115,7 @@ pub struct SubscriptionRoot;
 #[graphql_subscription(context = Context)]
 impl SubscriptionRoot {
     // Subscription for added cards
-    async fn card_added(context: &Context, retro_id: i32) -> SubStream {
+    async fn card_added(context: &Context, retro_id: Uuid) -> SubStream {
         let rx = context.card_addition_sender.subscribe();
 
         let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
@@ -116,7 +135,7 @@ impl SubscriptionRoot {
     }
 
     // Subscription for user list updates
-    async fn user_list_updated(context: &Context, retro_id: i32) -> SubStream {
+    async fn user_list_updated(context: &Context, retro_id: Uuid) -> SubStream {
         let rx = context.user_update_sender.subscribe();
 
         let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
@@ -148,9 +167,19 @@ impl QueryRoot {
     }
 
     // Fetch a specific retro by ID
-    fn retro_by_id(context: &Context, id: i32) -> Option<Retro> {
+    fn retro_by_id(context: &Context, id: Uuid) -> Option<Retro> {
         let retros = context.retros.read().unwrap();
         retros.iter().find(|retro| retro.id == id).cloned()
+    }
+
+    fn all_users(context: &Context) -> Vec<User> {
+        let users = context.users.read().unwrap();
+        users.values().cloned().collect()
+    }
+
+    fn user_by_id(context: &Context, id: Uuid) -> Option<User> {
+        let users = context.users.read().unwrap();
+        users.get(&id).cloned()
     }
 }
 
@@ -159,23 +188,52 @@ pub struct MutationRoot;
 
 #[juniper::graphql_object(context = Context)]
 impl MutationRoot {
+    fn create_user(context: &Context, input: CreateUserInput) -> User {
+        let mut users = context.users.write().unwrap();
+        let user_id = Uuid::new_v4();
+        let user = User {
+            username: input.username,
+            id: user_id
+        };
+        users.insert(user_id, user.clone());
+        user
+    }
+
     // Create a new retro
     fn create_retro(context: &Context, input: CreateRetroInput) -> Retro {
         let mut retros = context.retros.write().unwrap();
-        let new_id = (retros.len() + 1) as i32;
+        let new_id = Uuid::new_v4();
         let created_at = Utc::now().to_rfc3339();
+
+        let default_lanes = vec![
+            Lane {
+                id: Uuid::new_v4(),
+                title: "Good".to_string(),
+                cards: Vec::new(),
+                priority: 1
+            },
+            Lane {
+                id: Uuid::new_v4(),
+                title: "Bad".to_string(),
+                cards: Vec::new(),
+                priority: 2
+            },
+            Lane {
+                id: Uuid::new_v4(),
+                title: "Needs Improvement".to_string(),
+                cards: Vec::new(),
+                priority: 3
+            }
+        ];
 
         let new_retro = Retro {
             id: new_id,
             retro_name: input.retro_name,
-            creator_name: input.creator_name,
+            step: RetroStep::Writing,
+            creator_id: input.creator_id,
             created_at,
             users: vec![],
-            cards: Cards {
-                good: vec![],
-                bad: vec![],
-                needs_improvement: vec![],
-            },
+            lanes: default_lanes,
         };
 
         retros.push(new_retro.clone());
@@ -190,11 +248,11 @@ impl MutationRoot {
     }
 
     // Add a user to a retro
-    fn add_user(context: &Context, retro_id: i32, username: String) -> Vec<String> {
+    fn enter_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<Uuid> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
-            if !retro.users.contains(&username) {
-                retro.users.push(username.clone());
+            if !retro.users.contains(&user_id) {
+                retro.users.push(user_id.clone());
 
                 // Broadcast user list update
                 let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
@@ -209,10 +267,10 @@ impl MutationRoot {
     }
 
     // Remove a user from a retro
-    fn leave_retro(context: &Context, input: LeaveRetroInput) -> Vec<String> {
+    fn leave_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<Uuid> {
         let mut retros = context.retros.write().unwrap();
-        if let Some(retro) = retros.iter_mut().find(|retro| retro.id == input.retro_id) {
-            retro.users.retain(|user| user != &input.username);
+        if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
+            retro.users.retain(|user| user != &user_id);
 
             // Broadcast user list update
             let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
@@ -230,32 +288,29 @@ impl MutationRoot {
     fn add_card(context: &Context, input: AddCardInput) -> Option<Card> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == input.retro_id) {
-            let new_card_id = retro.cards.good.len() + retro.cards.bad.len() + retro.cards.needs_improvement.len() + 1;
             let new_card = Card {
-                id: new_card_id as i32,
+                id: Uuid::new_v4(),
+                creator_id: input.creator_id,
                 text: input.text.clone(),
+                votes: 0,
+                subcards: Vec::new()
             };
 
-            match input.category {
-                Category::Good => retro.cards.good.push(new_card.clone()),
-                Category::Bad => retro.cards.bad.push(new_card.clone()),
-                Category::NeedsImprovement => retro.cards.needs_improvement.push(new_card.clone()),
+            let lane = retro.lanes.iter_mut().filter(|l| l.id == input.lane_id).next();
+
+            if let Some(l) = lane {
+                l.cards.push(new_card.clone());
+
+                let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
+                    retro.id,
+                    l.id,
+                    new_card.clone(),
+                ));
+
+                Some(new_card)
+            } else {
+                None
             }
-
-            // Broadcast card addition
-            let category_str = match input.category {
-                Category::Good => "GOOD",
-                Category::Bad => "BAD",
-                Category::NeedsImprovement => "NEEDS_IMPROVEMENT",
-            };
-
-            let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
-                retro.id,
-                category_str.to_string(),
-                new_card.clone(),
-            ));
-
-            Some(new_card)
         } else {
             None
         }
