@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { Box, Typography, List, ListItem, ListItemText } from '@mui/material';
 
 const Sidebar = ({ users, subscribeToUsers }) => {
+
   useEffect(() => subscribeToUsers(), []);
 
   return (

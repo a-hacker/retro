@@ -64,11 +64,13 @@ const ADD_CARD = gql`
 const CARD_ADDED_SUBSCRIPTION = gql`
   subscription OnCardAdded($retroId: Int!) {
     cardAdded(retroId: $retroId) {
-      retroId
-      category
-      card {
-        id
-        text
+      ... on CardAdded {
+        retroId
+        category
+        card {
+          id
+          text
+        }
       }
     }
   }
@@ -77,7 +79,9 @@ const CARD_ADDED_SUBSCRIPTION = gql`
 const USER_LIST_UPDATED_SUBSCRIPTION = gql`
   subscription OnUserListUpdated($retroId: Int!) {
     userListUpdated(retroId: $retroId) {
-      users
+      ... on UserListUpdated {
+        users
+      }
     }
   }
 `;
@@ -131,71 +135,6 @@ const RetroPage = () => {
     },
   });
 
-  // Subscription for card additions
-  useEffect(() => {
-    if (loading || error || !data) return;
-
-    const retroId = data.retroById.id;
-    
-    // Subscribe to card additions
-    const unsubscribeCard = subscribeToMore({
-      document: CARD_ADDED_SUBSCRIPTION,
-      variables: { retroId: retroId },
-      updateQuery: (prev, { subscriptionData }) => {
-        if (!subscriptionData.data) return prev;
-        const newUpdate = subscriptionData.data.cardAdded;
-
-        const updatedCards = { ...prev.retroById.cards };
-
-        switch (newUpdate.category) {
-          case 'good':
-            updatedCards.good.push(newUpdate.card);
-            break;
-          case 'bad':
-            updatedCards.bad.push(newUpdate.card);
-            break;
-          case 'needs_improvement':
-            updatedCards.needs_improvement.push(newUpdate.card);
-            break;
-          default:
-            break;
-        }
-
-        return {
-          ...prev,
-          retroById: {
-            ...prev.retroById,
-            cards: updatedCards,
-          },
-        };
-      },
-    });
-
-    // Subscribe to user list updates
-    const unsubscribeUser = subscribeToMore({
-      document: USER_LIST_UPDATED_SUBSCRIPTION,
-      variables: { retroId: retroId },
-      updateQuery: (prev, { subscriptionData }) => {
-        if (!subscriptionData.data) return prev;
-        const newUpdate = subscriptionData.data.userListUpdated;
-
-        return {
-          ...prev,
-          retroById: {
-            ...prev.retroById,
-            users: newUpdate.users,
-          },
-        };
-      },
-    });
-
-    // Clean up subscriptions on unmount
-    return () => {
-      unsubscribeCard();
-      unsubscribeUser();
-    };
-  }, [error, data, loading, subscribeToMore]);
-
   useEffect(() => {
     if (loading || error || !data) return;
 
@@ -216,6 +155,50 @@ const RetroPage = () => {
   if (loading) return <Typography>Loading retro details...</Typography>;
   if (error) return <Typography>Error loading retro details.</Typography>;
   const retro = data.retroById;
+
+  // Subscribe to user list updates
+  const subscribeUsers = () => subscribeToMore({
+    document: USER_LIST_UPDATED_SUBSCRIPTION,
+    variables: { retroId: retro.id },
+    updateQuery: (prev, { subscriptionData }) => {
+      if (!subscriptionData.data) return prev;
+
+      return Object.assign({}, prev, {
+        retroById: Object.assign({}, prev.retroById, {
+          users: subscriptionData.data.userListUpdated.users
+        })
+      })
+    },
+  });
+
+  // Subscribe to new cards
+  const subscribeToCards = () => subscribeToMore({
+    document: CARD_ADDED_SUBSCRIPTION,
+    variables: { retroId: retro.id },
+    updateQuery: (prev, { subscriptionData }) => {
+      if (!subscriptionData.data || !subscriptionData.data.cardAdded) return prev;
+
+      let newCategory = subscriptionData.data.cardAdded.category.toLowerCase();
+      if (newCategory === "needs_improvement") {
+        newCategory = "needsImprovement"
+      }
+      let newCard = subscriptionData.data.cardAdded.card;
+      let currentCards = prev.retroById.cards;
+
+      let newCardsCategory = [...currentCards[newCategory], newCard];
+
+      let newCards =  Object.assign({}, currentCards)
+      newCards[newCategory] = newCardsCategory;
+
+      let newRetro = Object.assign({}, prev, {
+        retroById: Object.assign({}, prev.retroById, {
+          cards: newCards
+        })
+      })
+
+      return newRetro
+    },
+  });
 
   const handleAddCard = (category, text) => {
     if (!text) {
@@ -253,19 +236,9 @@ const RetroPage = () => {
       });
   };
 
-  // Subscribe to user list updates
-  const subscribeUsers = () => subscribeToMore({
-    document: USER_LIST_UPDATED_SUBSCRIPTION,
-    variables: { retroId: retro.id },
-    updateQuery: (prev, { subscriptionData }) => {
-      if (!subscriptionData.data) return prev;
-      return subscriptionData.data.userListUpdated.users;
-    },
-  });
-
   return (
     <Box display="flex" height="100vh">
-      <Sidebar users={retro.users} subscribeToUsers={subscribeUsers} />
+      <Sidebar users={retro.users} subscribeToUsers={subscribeUsers}/>
 
       <Box flexGrow={1} p={4} overflow="auto">
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
@@ -284,30 +257,36 @@ const RetroPage = () => {
           <Grid item xs={12} md={4}>
             <Column
               title="Good"
+              category={"GOOD"}
               cards={retro.cards.good}
               newCardText={newCards.good}
               onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, good: text }))}
               onAddCard={(text) => handleAddCard('GOOD', text)}
+              subscribeToNewCards={subscribeToCards}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <Column
               title="Bad"
+              category={"BAD"}
               cards={retro.cards.bad}
               newCardText={newCards.bad}
               onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, bad: text }))}
               onAddCard={(text) => handleAddCard('BAD', text)}
+              subscribeToNewCards={subscribeToCards}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <Column
               title="Needs Improvement"
+              category={"NEEDS_IMPROVEMENT"}
               cards={retro.cards.needsImprovement}
               newCardText={newCards.needsImprovement}
               onNewCardTextChange={(text) =>
                 setNewCards((prev) => ({ ...prev, needsImprovement: text }))
               }
               onAddCard={(text) => handleAddCard('NEEDS_IMPROVEMENT', text)}
+              subscribeToNewCards={subscribeToCards}
             />
           </Grid>
         </Grid>

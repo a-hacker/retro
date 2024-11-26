@@ -27,6 +27,16 @@ impl Context {
             user_update_receiver
         }
     }
+
+    pub fn from_self(&self) -> Self {
+        Context {
+            retros: self.retros.clone(),
+            card_addition_receiver: self.card_addition_sender.subscribe(),
+            card_addition_sender: self.card_addition_sender.clone(),
+            user_update_sender: self.card_addition_sender.clone(),
+            user_update_receiver: self.card_addition_sender.subscribe(),
+        }
+    }
 }
 
 impl JuniperContext for Context {}

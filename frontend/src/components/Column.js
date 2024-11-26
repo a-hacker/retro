@@ -1,10 +1,12 @@
 // frontend/src/components/Column.js
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Paper, Typography, List, TextField, Button, Box } from '@mui/material';
 import CardComponent from './CardComponent';
 
-const Column = ({ title, cards, newCardText, onNewCardTextChange, onAddCard }) => {
+const Column = ({ title, category, cards, newCardText, onNewCardTextChange, onAddCard, subscribeToNewCards }) => {
+  useEffect(() => subscribeToNewCards(), []);
+
   return (
     <Paper elevation={3} sx={{ p: 2, height: '100%' }}>
       <Typography variant="h6" align="center" gutterBottom>
