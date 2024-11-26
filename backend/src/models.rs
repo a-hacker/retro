@@ -1,5 +1,3 @@
-// src/models.rs
-
 use juniper::{GraphQLObject, GraphQLUnion};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
@@ -32,14 +30,6 @@ pub struct Cards {
 
 // Shared State: In-memory storage using Arc and RwLock for thread safety
 pub type SharedRetros = Arc<RwLock<Vec<Retro>>>;
-
-
-// PubSub: Broadcast channels for Card additions and User updates
-pub type CardAdditionSender = tokio::sync::broadcast::Sender<CardAdded>;
-pub type CardAdditionReceiver = tokio::sync::broadcast::Receiver<CardAdded>;
-
-pub type UserUpdateSender = tokio::sync::broadcast::Sender<UserListUpdated>;
-pub type UserUpdateReceiver = tokio::sync::broadcast::Receiver<UserListUpdated>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, GraphQLObject)]
 pub struct CardAdded {

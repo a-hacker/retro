@@ -16,7 +16,7 @@ use context::Context;
 use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 
-use models::{Retro, SharedRetros};
+use models::SharedRetros;
 use schema::{create_schema, Schema};
 
 async fn playground() -> Result<HttpResponse, Error> {

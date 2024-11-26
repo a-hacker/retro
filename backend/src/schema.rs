@@ -1,13 +1,8 @@
-// src/schema.rs
-
-use futures::TryStreamExt;
-use juniper::{RootNode, ToInputValue, graphql_subscription};
-use crate::models::{Retro, SharedRetros, Card, Cards, SubscriptionUpdate, CardAdded, UserListUpdated};
+use juniper::{RootNode, graphql_subscription};
+use crate::models::{Retro, Card, Cards, SubscriptionUpdate, UserListUpdated};
 use crate::context::Context;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
 use chrono::prelude::*;
-use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 
 // GraphQL representation of a Card

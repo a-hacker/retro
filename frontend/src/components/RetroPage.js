@@ -86,9 +86,8 @@ const USER_LIST_UPDATED_SUBSCRIPTION = gql`
   }
 `;
 
-const RetroPage = () => {
-  const { id } = useParams();
-  const navigate = useNavigate();
+const CardBox = ({ retro, username, subscribeToNewCards, handleLeaveRetro }) => {
+  useEffect(() => subscribeToNewCards(), [subscribeToNewCards]);
   const { enqueueSnackbar } = useSnackbar();
 
   const [newCards, setNewCards] = useState({
@@ -96,6 +95,93 @@ const RetroPage = () => {
     BAD: '',
     NEEDS_IMPROVEMENT: '',
   });
+
+  // Mutation to add a card
+  const [addCard] = useMutation(ADD_CARD, {
+    onCompleted: () => {
+      enqueueSnackbar('Card added successfully!', { variant: 'success' });
+    },
+    onError: (err) => {
+      enqueueSnackbar(err.message || 'Failed to add card.', { variant: 'error' });
+    },
+  });
+
+  const handleAddCard = (category, text) => {
+    if (!text) {
+      enqueueSnackbar('Please enter some text for the card.', { variant: 'warning' });
+      return;
+    }
+
+    addCard({
+      variables: {
+        input: {
+          retroId: retro.id,
+          category,
+          text,
+        },
+      },
+    })
+      .then(() => {
+        setNewCards((prev) => ({ ...prev, [category]: '' }));
+      })
+      .catch((err) => {
+        console.error('Error adding card:', err);
+      });
+  };
+
+  return (
+    <Box flexGrow={1} p={4} overflow="auto">
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+        <Typography variant="h4">{retro.retroName}</Typography>
+        <Box display="flex" alignItems="center">
+          <Typography variant="subtitle1" mr={2}>
+            Welcome, {username}!
+          </Typography>
+          <Button variant="contained" color="secondary" onClick={handleLeaveRetro}>
+            Leave Retro
+          </Button>
+        </Box>
+      </Box>
+
+      <Grid container spacing={4}>
+        <Grid item xs={12} md={4}>
+          <Column
+            title="Good"
+            cards={retro.cards.good}
+            newCardText={newCards.good}
+            onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, good: text }))}
+            onAddCard={(text) => handleAddCard('GOOD', text)}
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Column
+            title="Bad"
+            cards={retro.cards.bad}
+            newCardText={newCards.bad}
+            onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, bad: text }))}
+            onAddCard={(text) => handleAddCard('BAD', text)}
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Column
+            title="Needs Improvement"
+            cards={retro.cards.needsImprovement}
+            newCardText={newCards.needsImprovement}
+            onNewCardTextChange={(text) =>
+              setNewCards((prev) => ({ ...prev, needsImprovement: text }))
+            }
+            onAddCard={(text) => handleAddCard('NEEDS_IMPROVEMENT', text)}
+          />
+        </Grid>
+      </Grid>
+    </Box>
+  )
+}
+
+const RetroPage = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { enqueueSnackbar } = useSnackbar();
 
   const username = sessionStorage.getItem('username');
 
@@ -122,16 +208,6 @@ const RetroPage = () => {
     },
     onError: (err) => {
       enqueueSnackbar(err.message || 'Failed to leave retro.', { variant: 'error' });
-    },
-  });
-
-  // Mutation to add a card
-  const [addCard] = useMutation(ADD_CARD, {
-    onCompleted: () => {
-      enqueueSnackbar('Card added successfully!', { variant: 'success' });
-    },
-    onError: (err) => {
-      enqueueSnackbar(err.message || 'Failed to add card.', { variant: 'error' });
     },
   });
 
@@ -163,11 +239,13 @@ const RetroPage = () => {
     updateQuery: (prev, { subscriptionData }) => {
       if (!subscriptionData.data) return prev;
 
-      return Object.assign({}, prev, {
+      let newRetro = Object.assign({}, prev, {
         retroById: Object.assign({}, prev.retroById, {
           users: subscriptionData.data.userListUpdated.users
         })
       })
+      console.log(newRetro)
+      return newRetro
     },
   });
 
@@ -200,29 +278,6 @@ const RetroPage = () => {
     },
   });
 
-  const handleAddCard = (category, text) => {
-    if (!text) {
-      enqueueSnackbar('Please enter some text for the card.', { variant: 'warning' });
-      return;
-    }
-
-    addCard({
-      variables: {
-        input: {
-          retroId: retro.id,
-          category,
-          text,
-        },
-      },
-    })
-      .then(() => {
-        setNewCards((prev) => ({ ...prev, [category]: '' }));
-      })
-      .catch((err) => {
-        console.error('Error adding card:', err);
-      });
-  };
-
   const handleLeaveRetro = () => {
     leaveRetro({
       variables: {
@@ -236,61 +291,17 @@ const RetroPage = () => {
       });
   };
 
+  let users;
+  if (!retro.users.includes(username)) {
+    users = [...retro.users, username]
+  } else {
+    users = retro.users
+  }
+
   return (
     <Box display="flex" height="100vh">
-      <Sidebar users={retro.users} subscribeToUsers={subscribeUsers}/>
-
-      <Box flexGrow={1} p={4} overflow="auto">
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-          <Typography variant="h4">{retro.retroName}</Typography>
-          <Box display="flex" alignItems="center">
-            <Typography variant="subtitle1" mr={2}>
-              Welcome, {username}!
-            </Typography>
-            <Button variant="contained" color="secondary" onClick={handleLeaveRetro}>
-              Leave Retro
-            </Button>
-          </Box>
-        </Box>
-
-        <Grid container spacing={4}>
-          <Grid item xs={12} md={4}>
-            <Column
-              title="Good"
-              category={"GOOD"}
-              cards={retro.cards.good}
-              newCardText={newCards.good}
-              onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, good: text }))}
-              onAddCard={(text) => handleAddCard('GOOD', text)}
-              subscribeToNewCards={subscribeToCards}
-            />
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Column
-              title="Bad"
-              category={"BAD"}
-              cards={retro.cards.bad}
-              newCardText={newCards.bad}
-              onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, bad: text }))}
-              onAddCard={(text) => handleAddCard('BAD', text)}
-              subscribeToNewCards={subscribeToCards}
-            />
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Column
-              title="Needs Improvement"
-              category={"NEEDS_IMPROVEMENT"}
-              cards={retro.cards.needsImprovement}
-              newCardText={newCards.needsImprovement}
-              onNewCardTextChange={(text) =>
-                setNewCards((prev) => ({ ...prev, needsImprovement: text }))
-              }
-              onAddCard={(text) => handleAddCard('NEEDS_IMPROVEMENT', text)}
-              subscribeToNewCards={subscribeToCards}
-            />
-          </Grid>
-        </Grid>
-      </Box>
+      <Sidebar users={users} subscribeToUsers={subscribeUsers}/>
+      <CardBox retro={retro} username={username} handleLeaveRetro={handleLeaveRetro} subscribeToNewCards={subscribeToCards} />
     </Box>
   );
 };

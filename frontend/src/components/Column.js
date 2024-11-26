@@ -4,9 +4,7 @@ import React, { useEffect } from 'react';
 import { Paper, Typography, List, TextField, Button, Box } from '@mui/material';
 import CardComponent from './CardComponent';
 
-const Column = ({ title, category, cards, newCardText, onNewCardTextChange, onAddCard, subscribeToNewCards }) => {
-  useEffect(() => subscribeToNewCards(), []);
-
+const Column = ({ title, cards, newCardText, onNewCardTextChange, onAddCard }) => {
   return (
     <Paper elevation={3} sx={{ p: 2, height: '100%' }}>
       <Typography variant="h6" align="center" gutterBottom>
