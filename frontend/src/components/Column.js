@@ -1,6 +1,6 @@
 // frontend/src/components/Column.js
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Paper, Typography, List, TextField, Button, Box } from '@mui/material';
 import CardComponent from './CardComponent';
 

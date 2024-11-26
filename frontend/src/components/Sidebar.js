@@ -1,9 +1,12 @@
 // frontend/src/components/Sidebar.js
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Typography, List, ListItem, ListItemText } from '@mui/material';
 
-const Sidebar = ({ users }) => {
+const Sidebar = ({ users, subscribeToUsers }) => {
+
+  useEffect(() => subscribeToUsers(), []);
+
   return (
     <Box
       width={{ xs: '100%', md: 250 }}
