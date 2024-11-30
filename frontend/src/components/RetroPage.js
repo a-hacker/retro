@@ -39,6 +39,7 @@ const GET_RETRO_BY_ID = gql`
             id
           }
           text
+          votes
         }
       }
     }
@@ -69,6 +70,7 @@ const ADD_CARD = gql`
         id
       }
       text
+      votes
     }
   }
 `;
@@ -96,6 +98,7 @@ const CARD_ADDED_SUBSCRIPTION = gql`
               id
             }
             text
+            votes
           }
         }
         card {
@@ -104,6 +107,7 @@ const CARD_ADDED_SUBSCRIPTION = gql`
             id
           }
           text
+          votes
         }
       }
     }
@@ -193,6 +197,7 @@ const CardBox = ({ retro, username, user_id, subscribeToNewCards, handleLeaveRet
               onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, [lane.id]: text }))}
               onAddCard={(text) => handleAddCard(lane.id, text)}
               step={retro.step}
+              retroId={retro.id}
             />
           </Grid>
         )}

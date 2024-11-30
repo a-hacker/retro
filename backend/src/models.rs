@@ -1,7 +1,7 @@
 use juniper::{GraphQLObject, GraphQLUnion, GraphQLEnum};
 use serde::{Deserialize, Serialize};
 use crate::context::Context;
-use std::{collections::HashMap, sync::{Arc, RwLock}};
+use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
 use uuid::Uuid;
 
 
@@ -16,7 +16,7 @@ pub struct Card {
     pub id: Uuid,
     pub creator_id: Uuid,
     pub text: String,
-    pub votes: i32,
+    pub votes: HashSet<Uuid>,
     pub subcards: Vec<Card>
 }
 

@@ -5,6 +5,7 @@ use std::pin::Pin;
 use chrono::prelude::*;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
+use std::collections::HashSet;
 
 // GraphQL representation of a Card
 #[juniper::graphql_object(context = Context)]
@@ -22,7 +23,7 @@ impl Card {
     }
 
     fn votes(&self) -> i32 {
-        self.votes
+        self.votes.len() as i32
     }
 
     fn subcards(&self) -> &Vec<Card> {
@@ -313,7 +314,7 @@ impl MutationRoot {
                 id: Uuid::new_v4(),
                 creator_id: input.creator_id,
                 text: input.text.clone(),
-                votes: 0,
+                votes: HashSet::new(),
                 subcards: Vec::new()
             };
 
@@ -329,6 +330,29 @@ impl MutationRoot {
                 ));
 
                 Some(new_card)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    // Vote for a card in the retro
+    fn vote_card(context: &Context, retro_id: Uuid, user_id: Uuid, card_id: Uuid) -> Option<Card> {
+        let mut retros = context.retros.write().unwrap();
+        if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
+            let lane = retro.lanes.iter_mut().find(|l| l.cards.iter().any(|c| c.id == card_id));
+
+            if let Some(l) = lane {
+                let card = l.cards.iter_mut().find(|c| c.id == card_id).unwrap();
+                card.votes.insert(user_id);
+                let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
+                    retro.id,
+                    l.id,
+                    card.clone(),
+                ));
+                Some(card.clone())
             } else {
                 None
             }
