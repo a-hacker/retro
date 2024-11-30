@@ -24,7 +24,7 @@ const Sidebar = ({ users, subscribeToUsers }) => {
         ) : (
           users.map((user, index) => (
             <ListItem key={index} disablePadding>
-              <ListItemText primary={user} />
+              <ListItemText primary={user.username} />
             </ListItem>
           ))
         )}

@@ -10,7 +10,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Column from './Column';
-import { useQuery, useMutation, useSubscription, gql } from '@apollo/client';
+import { useQuery, useMutation, gql } from '@apollo/client';
 import { useSnackbar } from 'notistack';
 
 // Define GraphQL queries and mutations
@@ -19,17 +19,24 @@ const GET_RETRO_BY_ID = gql`
     retroById(id: $id) {
       id
       retroName
-      creatorId
+      creator {
+        id
+        username
+      }
       step
       createdAt
-      users
+      users {
+        username
+      }
       lanes {
         id
         title
         priority
         cards {
           id
-          creatorId
+          creator {
+            id
+          }
           text
         }
       }
@@ -39,13 +46,17 @@ const GET_RETRO_BY_ID = gql`
 
 const ADD_USER = gql`
   mutation AddUser($retroId: Uuid!, $userId: Uuid!) {
-    enterRetro(retroId: $retroId, userId: $userId)
+    enterRetro(retroId: $retroId, userId: $userId) {
+      username
+    }
   }
 `;
 
 const LEAVE_RETRO = gql`
   mutation LeaveRetro($retroId: Uuid!, $userId: Uuid!) {
-    leaveRetro(retroId: $retroId, userId: $userId)
+    leaveRetro(retroId: $retroId, userId: $userId) {
+      username
+    }
   }
 `;
 
@@ -53,7 +64,9 @@ const ADD_CARD = gql`
   mutation AddCard($input: AddCardInput!) {
     addCard(input: $input) {
       id
-      creatorId
+      creator {
+        id
+      }
       text
     }
   }
@@ -63,11 +76,24 @@ const CARD_ADDED_SUBSCRIPTION = gql`
   subscription OnCardAdded($retroId: Uuid!) {
     cardAdded(retroId: $retroId) {
       ... on CardAdded {
-        retroId
-        laneId
+        retro {
+          id
+        }
+        lane {
+          id
+          cards {
+            id
+            creator {
+              id
+            }
+            text
+          }
+        }
         card {
           id
-          creatorId
+          creator {
+            id
+          }
           text
         }
       }
@@ -79,7 +105,9 @@ const USER_LIST_UPDATED_SUBSCRIPTION = gql`
   subscription OnUserListUpdated($retroId: Uuid!) {
     userListUpdated(retroId: $retroId) {
       ... on UserListUpdated {
-        users
+        users {
+          username
+        }
       }
     }
   }
@@ -163,11 +191,7 @@ const RetroPage = () => {
 
   const username = sessionStorage.getItem('username');
   const user_id = sessionStorage.getItem('userid');
-
-  // Fetch retro details
-  const { loading, error, data, subscribeToMore } = useQuery(GET_RETRO_BY_ID, {
-    variables: { id }
-  });
+  const [enteredRetro, enterRetro] = useState(false);
 
   // Mutation to add a user
   const [addUser] = useMutation(ADD_USER, {
@@ -177,6 +201,21 @@ const RetroPage = () => {
     onError: (err) => {
       enqueueSnackbar(err.message || 'Failed to join retro.', { variant: 'error' });
     },
+  });
+
+  if (!enteredRetro){
+    enterRetro(true);
+    addUser({
+      variables: {
+        retroId: id,
+        userId: user_id,
+      },
+    });
+  }
+
+  // Fetch retro details
+  const { loading, error, data, subscribeToMore } = useQuery(GET_RETRO_BY_ID, {
+    variables: { id },
   });
 
   // Mutation to leave retro
@@ -189,23 +228,6 @@ const RetroPage = () => {
       enqueueSnackbar(err.message || 'Failed to leave retro.', { variant: 'error' });
     },
   });
-
-  useEffect(() => {
-    if (loading || error || !data) return;
-
-    const retro = data.retroById;
-
-    // Automatically add the user to the retro if not already a participant
-    if (!retro.users.includes(user_id)) {
-      addUser({
-        variables: {
-          retroId: retro.id,
-          userId: user_id,
-        },
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, error, data, addUser, username]);
 
   if (loading) return <Typography>Loading retro details...</Typography>;
   if (error) return <Typography>Error loading retro details.</Typography>;
@@ -223,7 +245,6 @@ const RetroPage = () => {
           users: subscriptionData.data.userListUpdated.users
         })
       })
-      console.log(newRetro)
       return newRetro
     },
   });
@@ -235,14 +256,10 @@ const RetroPage = () => {
     updateQuery: (prev, { subscriptionData }) => {
       if (!subscriptionData.data || !subscriptionData.data.cardAdded) return prev;
 
-      let cardLaneId = subscriptionData.data.cardAdded.laneId;
-      let newCard = subscriptionData.data.cardAdded.card;
+      let cardLane = subscriptionData.data.cardAdded.lane;
       
       let currentLanes = prev.retroById.lanes;
-      let cardLane = currentLanes.filter((l) => l.id === cardLaneId)[0]
-      let newLaneCards = [...cardLane.cards, newCard];
-      let newLane = Object.assign({}, cardLane, {cards: newLaneCards})
-      let newLanes = currentLanes.map((l) => l.id === cardLaneId ? newLane : l)
+      let newLanes = currentLanes.map((l) => l.id === cardLane.id ? cardLane : l)
 
       let newRetro = Object.assign({}, prev, {
         retroById: Object.assign({}, prev.retroById, {
@@ -267,16 +284,9 @@ const RetroPage = () => {
       });
   };
 
-  let users;
-  if (!retro.users.includes(user_id)) {
-    users = [...retro.users, user_id]
-  } else {
-    users = retro.users
-  }
-
   return (
     <Box display="flex" height="100vh">
-      <Sidebar users={users} subscribeToUsers={subscribeUsers}/>
+      <Sidebar users={retro.users} subscribeToUsers={subscribeUsers}/>
       <CardBox retro={retro} username={username} user_id={user_id} handleLeaveRetro={handleLeaveRetro} subscribeToNewCards={subscribeToCards} />
     </Box>
   );

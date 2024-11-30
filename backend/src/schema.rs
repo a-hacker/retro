@@ -7,7 +7,7 @@ use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 // GraphQL representation of a Card
-#[juniper::graphql_object]
+#[juniper::graphql_object(context = Context)]
 impl Card {
     fn id(&self) -> Uuid {
         self.id
@@ -17,8 +17,8 @@ impl Card {
         &self.text
     }
 
-    fn creator_id(&self) -> Uuid {
-        self.creator_id
+    fn creator(&self, context: &Context) -> User {
+        context.users.read().unwrap().get(&self.creator_id).unwrap().clone()
     }
 
     fn votes(&self) -> i32 {
@@ -31,7 +31,7 @@ impl Card {
 }
 
 // GraphQL representation of Cards
-#[juniper::graphql_object]
+#[juniper::graphql_object(context = Context)]
 impl Lane {
     fn id(&self) -> Uuid {
         self.id
@@ -65,16 +65,17 @@ impl Retro {
         &self.step
     }
 
-    fn creator_id(&self) -> &Uuid {
-        &self.creator_id
+    fn creator(&self, context: &Context) -> User {
+        context.users.read().unwrap().get(&self.creator_id).unwrap().clone()
     }
 
     fn created_at(&self) -> &str {
         &self.created_at
     }
 
-    fn users(&self) -> &Vec<Uuid> {
-        &self.users
+    fn users(&self, context: &Context) -> Vec<User> {
+        let users = context.users.read().unwrap();
+        self.users.iter().map(|uid| users.get(uid).unwrap().clone()).collect()
     }
 
     fn lanes(&self) -> &Vec<Lane> {
@@ -248,7 +249,7 @@ impl MutationRoot {
     }
 
     // Add a user to a retro
-    fn enter_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<Uuid> {
+    fn enter_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<User> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
             if !retro.users.contains(&user_id) {
@@ -260,14 +261,14 @@ impl MutationRoot {
                     retro.users.clone(),
                 ));
             }
-            retro.users.clone()
+            retro.users(context)
         } else {
             vec![]
         }
     }
 
     // Remove a user from a retro
-    fn leave_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<Uuid> {
+    fn leave_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<User> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
             retro.users.retain(|user| user != &user_id);
@@ -278,7 +279,7 @@ impl MutationRoot {
                 retro.users.clone(),
             ));
 
-            retro.users.clone()
+            retro.users(context)
         } else {
             vec![]
         }

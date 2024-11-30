@@ -20,9 +20,9 @@ const GET_ALL_RETROS = gql`
     allRetros {
       id
       retroName
-      creatorId
-      createdAt
-      users
+      creator {
+        username
+      }
     }
   }
 `;
@@ -32,9 +32,9 @@ const CREATE_RETRO = gql`
     createRetro(input: $input) {
       id
       retroName
-      creatorId
-      createdAt
-      users
+      creator {
+        username
+      }
     }
   }
 `;
@@ -105,7 +105,7 @@ const RetroList = ({ username, user_id }) => {
               >
                 <ListItemText
                   primary={retro.retroName}
-                  secondary={`Created by: ${retro.creatorId}`}
+                  secondary={`Created by: ${retro.creator.username}`}
                 />
               </ListItem>
             ))
