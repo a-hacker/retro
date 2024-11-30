@@ -140,9 +140,6 @@ const CardBox = ({ retro, username, user_id, subscribeToNewCards, handleLeaveRet
 
   // Mutation to add a card
   const [addCard] = useMutation(ADD_CARD, {
-    onCompleted: () => {
-      enqueueSnackbar('Card added successfully!', { variant: 'success' });
-    },
     onError: (err) => {
       enqueueSnackbar(err.message || 'Failed to add card.', { variant: 'error' });
     },
@@ -195,6 +192,7 @@ const CardBox = ({ retro, username, user_id, subscribeToNewCards, handleLeaveRet
               newCardText={newCards[lane.id]}
               onNewCardTextChange={(text) => setNewCards((prev) => ({ ...prev, [lane.id]: text }))}
               onAddCard={(text) => handleAddCard(lane.id, text)}
+              step={retro.step}
             />
           </Grid>
         )}
@@ -214,9 +212,6 @@ const RetroPage = () => {
 
   // Mutation to add a user
   const [addUser] = useMutation(ADD_USER, {
-    onCompleted: () => {
-      enqueueSnackbar('Joined retro successfully!', { variant: 'success' });
-    },
     onError: (err) => {
       enqueueSnackbar(err.message || 'Failed to join retro.', { variant: 'error' });
     },
@@ -250,9 +245,6 @@ const RetroPage = () => {
 
   // Mutation to update retro step
   const [updateRetroStep] = useMutation(UPDATE_STEP, {
-    onCompleted: () => {
-      enqueueSnackbar('Changed retro step!', { variant: 'success' });
-    },
     onError: (err) => {
       enqueueSnackbar(err.message || 'Failed to change retro step.', { variant: 'error' });
     },
