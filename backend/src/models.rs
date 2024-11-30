@@ -21,6 +21,7 @@ pub struct Card {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, GraphQLEnum)]
+#[graphql(rename_all = "none")]
 pub enum RetroStep {
     Writing,
     Grouping,
@@ -101,11 +102,32 @@ impl UserListUpdated {
 }
 
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepUpdated {
+    pub retro_id: Uuid,
+    pub step: RetroStep,
+}
+
+#[juniper::graphql_object(context = Context)]
+impl StepUpdated {
+    fn retro(&self, context: &Context) -> Retro {
+        context.retros.read().unwrap().iter()
+            .filter(|retro| retro.id == self.retro_id).next()
+            .unwrap().clone()
+    }
+
+    fn step(&self) -> &RetroStep {
+        &self.step
+    }
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize, GraphQLUnion)]
 #[graphql(context = Context)]
 pub enum SubscriptionUpdate {
     CardAdded(CardAdded),
-    UserListUpdated(UserListUpdated)
+    UserListUpdated(UserListUpdated),
+    StepUpdated(StepUpdated)
 }
 
 impl SubscriptionUpdate {
@@ -123,5 +145,12 @@ impl SubscriptionUpdate {
         };
 
         Self::UserListUpdated(user_list_update)
+    }
+
+    pub fn create_step_update(retro_id: Uuid, step: RetroStep) -> Self {
+        let step_update = StepUpdated {
+            retro_id, step
+        };
+        Self::StepUpdated(step_update)
     }
 }

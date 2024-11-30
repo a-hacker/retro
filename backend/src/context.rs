@@ -8,6 +8,7 @@ pub struct Context {
     pub users: SharedUsers,
     pub card_addition_sender: broadcast::Sender<SubscriptionUpdate>,
     pub user_update_sender: broadcast::Sender<SubscriptionUpdate>,
+    pub step_update_sender: broadcast::Sender<SubscriptionUpdate>,
 }
 
 impl Context {
@@ -15,12 +16,14 @@ impl Context {
         // Initialize broadcast channels with a buffer size of 100
         let (card_addition_sender, _) = broadcast::channel(100);
         let (user_update_sender, _) = broadcast::channel(100);
+        let (step_update_sender, _) = broadcast::channel(100);
 
         Context {
             retros,
             users,
             card_addition_sender,
             user_update_sender,
+            step_update_sender,
         }
     }
 
@@ -29,7 +32,8 @@ impl Context {
             retros: self.retros.clone(),
             users: self.users.clone(),
             card_addition_sender: self.card_addition_sender.clone(),
-            user_update_sender: self.card_addition_sender.clone(),
+            user_update_sender: self.user_update_sender.clone(),
+            step_update_sender: self.step_update_sender.clone(),
         }
     }
 }

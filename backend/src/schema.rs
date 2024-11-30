@@ -154,6 +154,26 @@ impl SubscriptionRoot {
 
         Box::pin(stream)
     }
+
+    async fn step_update(context: &Context, retro_id: Uuid) -> SubStream {
+        let rx = context.step_update_sender.subscribe();
+
+        let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
+            .filter_map(move |result| {
+                match result {
+                    Ok(update) => {
+                        match update.clone() {
+                            SubscriptionUpdate::StepUpdated(s) if s.retro_id == retro_id => Some(update),
+                            _ => None,
+                        }
+                    }
+                    Err(_) => None,
+                }
+            });
+
+        Box::pin(stream)
+
+    }
 }
 
 // Root Query object
@@ -315,6 +335,23 @@ impl MutationRoot {
         } else {
             None
         }
+    }
+
+    fn update_retro_step(context: &Context, retro_id: Uuid, step: RetroStep) -> Option<Retro> {
+        let mut retros = context.retros.write().unwrap();
+        if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
+            retro.step = step.clone();
+
+            let _ = context.step_update_sender.send(SubscriptionUpdate::create_step_update(
+                retro.id,
+                step,
+            ));
+
+            Some(retro.clone())
+        } else {
+            None
+        }
+
     }
 }
 

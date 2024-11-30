@@ -10,6 +10,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Column from './Column';
+import StepBar from './StepBar';
 import { useQuery, useMutation, gql } from '@apollo/client';
 import { useSnackbar } from 'notistack';
 
@@ -72,6 +73,14 @@ const ADD_CARD = gql`
   }
 `;
 
+const UPDATE_STEP = gql`
+  mutation UpdateStep($retroId: Uuid!, $step: RetroStep!) {
+    updateRetroStep(retroId: $retroId, step: $step) {
+      step
+    }
+  }
+`;
+
 const CARD_ADDED_SUBSCRIPTION = gql`
   subscription OnCardAdded($retroId: Uuid!) {
     cardAdded(retroId: $retroId) {
@@ -108,6 +117,16 @@ const USER_LIST_UPDATED_SUBSCRIPTION = gql`
         users {
           username
         }
+      }
+    }
+  }
+`;
+
+const UPDATE_STEP_SUBSCRIPTION = gql`
+  subscription OnStepUpdated($retroId: Uuid!) {
+    stepUpdate(retroId: $retroId) {
+      ... on StepUpdated {
+        step
       }
     }
   }
@@ -229,6 +248,16 @@ const RetroPage = () => {
     },
   });
 
+  // Mutation to update retro step
+  const [updateRetroStep] = useMutation(UPDATE_STEP, {
+    onCompleted: () => {
+      enqueueSnackbar('Changed retro step!', { variant: 'success' });
+    },
+    onError: (err) => {
+      enqueueSnackbar(err.message || 'Failed to change retro step.', { variant: 'error' });
+    },
+  });
+
   if (loading) return <Typography>Loading retro details...</Typography>;
   if (error) return <Typography>Error loading retro details.</Typography>;
   const retro = data.retroById;
@@ -271,6 +300,23 @@ const RetroPage = () => {
     },
   });
 
+  const subscribeToStep = () => subscribeToMore({
+    document: UPDATE_STEP_SUBSCRIPTION,
+    variables: { retroId: retro.id },
+    updateQuery: (prev, { subscriptionData }) => {
+      if (!subscriptionData.data || !subscriptionData.data.stepUpdate) return prev;
+
+      let newStep = subscriptionData.data.stepUpdate.step;
+      let newRetro = Object.assign({}, prev, {
+        retroById: Object.assign({}, prev.retroById, {
+          step: newStep
+        })
+      })
+
+      return newRetro
+    },
+  });
+
   const handleLeaveRetro = () => {
     leaveRetro({
       variables: {
@@ -284,10 +330,22 @@ const RetroPage = () => {
       });
   };
 
+  const handleRetroStepClick = (newStep) => {
+    updateRetroStep({
+      variables: {
+        retroId: retro.id,
+        step: newStep,
+      },
+    }).catch((err) => {
+      console.error('Error updating retro step:', err);
+    });
+  }
+
   return (
     <Box display="flex" height="100vh">
       <Sidebar users={retro.users} subscribeToUsers={subscribeUsers}/>
       <CardBox retro={retro} username={username} user_id={user_id} handleLeaveRetro={handleLeaveRetro} subscribeToNewCards={subscribeToCards} />
+      <StepBar currentStep={retro.step} handleRetroStepClick={handleRetroStepClick} subscribeToStep={subscribeToStep} />
     </Box>
   );
 };
