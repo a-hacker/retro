@@ -22,8 +22,8 @@ impl Card {
         context.users.read().unwrap().get(&self.creator_id).unwrap().clone()
     }
 
-    fn votes(&self) -> i32 {
-        self.votes.len() as i32
+    fn votes(&self) -> Vec<Uuid> {
+        self.votes.iter().cloned().collect()
     }
 
     fn subcards(&self) -> &Vec<Card> {
@@ -338,15 +338,43 @@ impl MutationRoot {
         }
     }
 
-    // Vote for a card in the retro
-    fn vote_card(context: &Context, retro_id: Uuid, user_id: Uuid, card_id: Uuid) -> Option<Card> {
+    fn edit_card(context: &Context,  retro_id: Uuid, card_id: Uuid, text: String) -> Option<Card> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
             let lane = retro.lanes.iter_mut().find(|l| l.cards.iter().any(|c| c.id == card_id));
 
             if let Some(l) = lane {
                 let card = l.cards.iter_mut().find(|c| c.id == card_id).unwrap();
-                card.votes.insert(user_id);
+                card.text = text;
+                let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
+                    retro.id,
+                    l.id,
+                    card.clone(),
+                ));
+                Some(card.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    // Vote for a card in the retro
+    fn vote_card(context: &Context, retro_id: Uuid, user_id: Uuid, card_id: Uuid, vote: bool) -> Option<Card> {
+        let mut retros = context.retros.write().unwrap();
+        if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
+            let lane = retro.lanes.iter_mut().find(|l| l.cards.iter().any(|c| c.id == card_id));
+
+            if let Some(l) = lane {
+                let card = l.cards.iter_mut().find(|c| c.id == card_id).unwrap();
+
+                if vote {
+                    card.votes.insert(user_id);
+                } else {
+                    card.votes.remove(&user_id);
+                }
+                
                 let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
                     retro.id,
                     l.id,
