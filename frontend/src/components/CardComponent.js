@@ -10,12 +10,13 @@ import { useSnackbar } from 'notistack';
 const VOTE_CARD = gql`
   mutation VoteCard($retroId: Uuid!, $userId: Uuid!, $cardId: Uuid!, $vote: Boolean!) {
     voteCard(retroId: $retroId, userId: $userId, cardId: $cardId, vote: $vote) {
-      id
-      creator {
+      user {
+        id
+        username
+      }
+      votes {
         id
       }
-      text
-      votes
     }
   }
 `;
@@ -28,7 +29,6 @@ const EDIT_CARD = gql`
         id
       }
       text
-      votes
     }
   }
 `;
@@ -92,7 +92,7 @@ const CreateCardComponent = ({card, user, retroId}) => {
   );
 };
 
-const VoteCardComponent = ({card, user, retroId}) => {
+const VoteCardComponent = ({card, participants, user, retroId}) => {
   // Mutation to vote on a card
   const { enqueueSnackbar } = useSnackbar();
   const [voteCard] = useMutation(VOTE_CARD, {
@@ -114,10 +114,12 @@ const VoteCardComponent = ({card, user, retroId}) => {
     })
   }
 
+  let myParticipant = participants.find(p => p.user.id === user)
+
   return (
     <Paper elevation={1} sx={{ p: 1, mb: 1, }}>
       <Typography>{card.text}</Typography>
-      {!card.votes.includes(user) ? 
+      {!myParticipant.votes.some(c => c.id === card.id) ? 
         <IconButton size='small'>
           <Add onClick={() => handleVoteCard(card.id, true)}/>
         </IconButton> :
@@ -129,11 +131,23 @@ const VoteCardComponent = ({card, user, retroId}) => {
   );
 };
 
-const ReviewCardComponent = ({card}) => {
+const ReviewCardComponent = ({card, participants}) => {
+  let cardVotes = {}
+  participants.forEach(participant => {
+    participant.votes.forEach(vote => {
+      let card_id = vote.id
+      if (card_id in cardVotes) {
+        cardVotes[card_id] = cardVotes[card_id] + 1
+      } else {
+        cardVotes[card_id] = 1
+      }
+    })
+  })
+
   return (
     <Paper elevation={1} sx={{ p: 1, mb: 1, }}>
       <Typography>{card.text}</Typography>
-      <Typography>Votes: {card.votes.length}</Typography>
+      <Typography>Votes: {cardVotes[card.id] || 0 }</Typography>
     </Paper>
   );
 };
@@ -147,14 +161,14 @@ const DefaultCardComponent = ({card}) => {
 };
 
 
-const CardComponent = ({ card, step, user, retroId }) => {
+const CardComponent = ({ card, participants, step, user, retroId }) => {
   switch(step) {
     case "Writing":
       return <CreateCardComponent card={card} user={user} retroId={retroId}/>
     case "Voting":
-      return <VoteCardComponent card={card} user={user} retroId={retroId} />
+      return <VoteCardComponent card={card} participants={participants} user={user} retroId={retroId} />
     case "Reviewing":
-      return <ReviewCardComponent card={card} />
+      return <ReviewCardComponent card={card} participants={participants} />
     default:
       return <DefaultCardComponent card={card} />
   }

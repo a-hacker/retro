@@ -2,7 +2,7 @@ import React from 'react';
 import { Paper, Typography, List, TextField, Button, Box } from '@mui/material';
 import CardComponent from './CardComponent';
 
-const Column = ({ title, cards, newCardText, onNewCardTextChange, onAddCard, step, retroId }) => {
+const Column = ({ title, cards, participants, newCardText, onNewCardTextChange, onAddCard, step, retroId }) => {
   const user_id = sessionStorage.getItem('userid');
 
   return (
@@ -12,7 +12,7 @@ const Column = ({ title, cards, newCardText, onNewCardTextChange, onAddCard, ste
       </Typography>
       <List sx={{ minHeight: 200, maxHeight: 400, overflow: 'auto' }}>
         {cards.map((card) => (
-          <CardComponent key={card.id} card={card} step={step} user={user_id} retroId={retroId} />
+          <CardComponent key={card.id} card={card} participants={participants} step={step} user={user_id} retroId={retroId} />
         ))}
       </List>
       <Box display="flex" mt={2}>

@@ -1,11 +1,11 @@
 use juniper::{RootNode, graphql_subscription};
-use crate::models::{Retro, RetroStep, Card, Lane, SubscriptionUpdate, User, UserListUpdated};
+use crate::models::{Retro, RetroStep, RetroParticipant, Card, Lane, SubscriptionUpdate, User, UserListUpdated};
 use crate::context::Context;
 use std::pin::Pin;
 use chrono::prelude::*;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 // GraphQL representation of a Card
 #[juniper::graphql_object(context = Context)]
@@ -20,10 +20,6 @@ impl Card {
 
     fn creator(&self, context: &Context) -> User {
         context.users.read().unwrap().get(&self.creator_id).unwrap().clone()
-    }
-
-    fn votes(&self) -> Vec<Uuid> {
-        self.votes.iter().cloned().collect()
     }
 
     fn subcards(&self) -> &Vec<Card> {
@@ -51,6 +47,35 @@ impl Lane {
     }
 }
 
+// GraphQL representation of a RetroParticipant
+#[juniper::graphql_object(context = Context)]
+impl RetroParticipant {
+    fn user(&self, context: &Context) -> User {
+        let users = context.users.read().unwrap();
+        users.get(&self.user).unwrap().clone()
+    }
+
+    fn retro(&self, context: &Context) -> Retro {
+        let retros = context.retros.read().unwrap();
+        retros.iter().find(|r| r.id == self.retro_id).unwrap().clone()
+    }
+
+    fn votes(&self, context: &Context) -> Vec<Card> {
+        let retros = context.retros.read().unwrap();
+        if let Some(retro) = retros.iter().find(|r| r.id == self.retro_id) {
+            let mut cards: HashMap<Uuid, Card> = HashMap::new();
+
+            for lane in retro.lanes.iter() {
+                let matched_cards: HashMap<Uuid, Card> = lane.cards.iter().filter_map(|c| self.votes.get(&c.id).map(|id| (*id, c.clone()))).collect();
+                cards.extend(matched_cards);
+            }
+            self.votes.iter().filter_map(|card_id| cards.get(card_id)).cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 // GraphQL representation of a Retro
 #[juniper::graphql_object(context = Context)]
 impl Retro {
@@ -74,9 +99,8 @@ impl Retro {
         &self.created_at
     }
 
-    fn users(&self, context: &Context) -> Vec<User> {
-        let users = context.users.read().unwrap();
-        self.users.iter().map(|uid| users.get(uid).unwrap().clone()).collect()
+    fn participants(&self) -> &Vec<RetroParticipant> {
+        &self.participants
     }
 
     fn lanes(&self) -> &Vec<Lane> {
@@ -254,7 +278,7 @@ impl MutationRoot {
             step: RetroStep::Writing,
             creator_id: input.creator_id,
             created_at,
-            users: vec![],
+            participants: vec![],
             lanes: default_lanes,
         };
 
@@ -263,44 +287,49 @@ impl MutationRoot {
         // Broadcast user list update for the new retro (initially empty)
         let _ = context.user_update_sender.send(SubscriptionUpdate::UserListUpdated ( UserListUpdated {
             retro_id: new_retro.id,
-            users: new_retro.users.clone(),
+            participants: new_retro.participants.clone(),
         }));
 
         new_retro
     }
 
     // Add a user to a retro
-    fn enter_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<User> {
+    fn enter_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<RetroParticipant> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
-            if !retro.users.contains(&user_id) {
-                retro.users.push(user_id.clone());
+            if retro.participants.iter().find(|p| p.user == user_id).is_none() {
+                let participant = RetroParticipant {
+                    user: user_id,
+                    retro_id: retro_id,
+                    votes: HashSet::new()
+                };
+                retro.participants.push(participant);
 
                 // Broadcast user list update
                 let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
                     retro_id,
-                    retro.users.clone(),
+                    retro.participants.clone(),
                 ));
             }
-            retro.users(context)
+            retro.participants.clone()
         } else {
-            vec![]
+            Vec::new()
         }
     }
 
     // Remove a user from a retro
-    fn leave_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<User> {
+    fn leave_retro(context: &Context, retro_id: Uuid, user_id: Uuid) -> Vec<RetroParticipant> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
-            retro.users.retain(|user| user != &user_id);
+            retro.participants.retain(|p| p.user != user_id);
 
             // Broadcast user list update
             let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
                 retro.id,
-                retro.users.clone(),
+                retro.participants.clone(),
             ));
 
-            retro.users(context)
+            retro.participants.clone()
         } else {
             vec![]
         }
@@ -314,7 +343,6 @@ impl MutationRoot {
                 id: Uuid::new_v4(),
                 creator_id: input.creator_id,
                 text: input.text.clone(),
-                votes: HashSet::new(),
                 subcards: Vec::new()
             };
 
@@ -361,26 +389,21 @@ impl MutationRoot {
     }
 
     // Vote for a card in the retro
-    fn vote_card(context: &Context, retro_id: Uuid, user_id: Uuid, card_id: Uuid, vote: bool) -> Option<Card> {
+    fn vote_card(context: &Context, retro_id: Uuid, user_id: Uuid, card_id: Uuid, vote: bool) -> Option<Vec<RetroParticipant>> {
         let mut retros = context.retros.write().unwrap();
         if let Some(retro) = retros.iter_mut().find(|retro| retro.id == retro_id) {
-            let lane = retro.lanes.iter_mut().find(|l| l.cards.iter().any(|c| c.id == card_id));
-
-            if let Some(l) = lane {
-                let card = l.cards.iter_mut().find(|c| c.id == card_id).unwrap();
-
+            if let Some(participant) = retro.participants.iter_mut().find(|p| p.user == user_id) {
                 if vote {
-                    card.votes.insert(user_id);
+                    participant.votes.insert(card_id);
                 } else {
-                    card.votes.remove(&user_id);
+                    participant.votes.remove(&card_id);
                 }
-                
-                let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
+
+                let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
                     retro.id,
-                    l.id,
-                    card.clone(),
+                    retro.participants.clone()
                 ));
-                Some(card.clone())
+                Some(retro.participants.clone())
             } else {
                 None
             }

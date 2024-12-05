@@ -11,12 +11,11 @@ pub struct User {
     pub username: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
 pub struct Card {
     pub id: Uuid,
     pub creator_id: Uuid,
     pub text: String,
-    pub votes: HashSet<Uuid>,
     pub subcards: Vec<Card>
 }
 
@@ -29,6 +28,13 @@ pub enum RetroStep {
     Reviewing,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetroParticipant {
+    pub user: Uuid,
+    pub retro_id: Uuid,
+    pub votes: HashSet<Uuid>,
+}
+
 // Represents a Retro
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Retro {
@@ -37,7 +43,7 @@ pub struct Retro {
     pub creator_id: Uuid,
     pub step: RetroStep,
     pub created_at: String, // ISO 8601 format
-    pub users: Vec<Uuid>,
+    pub participants: Vec<RetroParticipant>,
     pub lanes: Vec<Lane>,
 }
 
@@ -84,7 +90,7 @@ impl CardAdded {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserListUpdated {
     pub retro_id: Uuid,
-    pub users: Vec<Uuid>,
+    pub participants: Vec<RetroParticipant>,
 }
 
 #[juniper::graphql_object(context = Context)]
@@ -95,9 +101,8 @@ impl UserListUpdated {
             .unwrap().clone()
     }
 
-    fn users(&self, context: &Context) -> Vec<User> {
-        let users = context.users.read().unwrap();
-        self.users.iter().map(|uid| users.get(uid).unwrap().clone()).collect()
+    fn participants(&self) -> &Vec<RetroParticipant> {
+        &self.participants
     }
 }
 
@@ -139,9 +144,9 @@ impl SubscriptionUpdate {
         Self::CardAdded(card_added)
     }
 
-    pub fn create_user_list_update(retro_id: Uuid, users: Vec<Uuid>) -> Self {
+    pub fn create_user_list_update(retro_id: Uuid, participants: Vec<RetroParticipant>) -> Self {
         let user_list_update = UserListUpdated {
-            retro_id, users
+            retro_id, participants
         };
 
         Self::UserListUpdated(user_list_update)

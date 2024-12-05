@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import { Box, Typography, List, ListItem, ListItemText } from '@mui/material';
 
-const Sidebar = ({ users, subscribeToUsers }) => {
+const Sidebar = ({ participants, subscribeToUsers }) => {
 
   useEffect(() => subscribeToUsers(), []);
 
@@ -19,12 +19,12 @@ const Sidebar = ({ users, subscribeToUsers }) => {
         Participants
       </Typography>
       <List>
-        {users.length === 0 ? (
+        {participants.length === 0 ? (
           <Typography>No participants yet.</Typography>
         ) : (
-          users.map((user, index) => (
+          participants.map((user, index) => (
             <ListItem key={index} disablePadding>
-              <ListItemText primary={user.username} />
+              <ListItemText primary={user.user.username} />
             </ListItem>
           ))
         )}
