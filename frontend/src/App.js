@@ -14,7 +14,7 @@ function App() {
       <SnackbarProvider maxSnack={3}>
         <Router>
           <CssBaseline />
-          <Container maxWidth="xl" disableGutters>
+          <Container maxWidth="100%" disableGutters>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/retros/:id" element={<RetroPage />} />

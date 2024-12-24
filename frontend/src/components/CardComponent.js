@@ -114,7 +114,7 @@ const VoteCardComponent = ({card, participants, user, retroId}) => {
     })
   }
 
-  let myParticipant = participants.find(p => p.user.id === user)
+  let myParticipant = participants.find(p => p.user.id === user) || {"votes": []}
 
   return (
     <Paper elevation={1} sx={{ p: 1, mb: 1, }}>

@@ -13,7 +13,7 @@ const Sidebar = ({ participants, subscribeToUsers }) => {
       bgcolor="#5c6bc0"
       color="#fff"
       p={2}
-      sx={{ height: '100vh', position: 'sticky', top: 0 }}
+      sx={{ height: '100vh', position: 'sticky', top: 0, }}
     >
       <Typography variant="h6" gutterBottom>
         Participants
