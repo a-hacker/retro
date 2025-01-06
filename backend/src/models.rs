@@ -5,6 +5,27 @@ use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
 use uuid::Uuid;
 
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ServiceMode {
+    MEMORY,
+    MONGO
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceConfig {
+    pub mode: ServiceMode,
+}
+
+impl Default for ServiceConfig {
+    fn default() -> Self {
+        ServiceConfig {
+            mode: ServiceMode::MEMORY
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, GraphQLObject)]
 pub struct User {
     pub id: Uuid,
@@ -57,7 +78,7 @@ pub struct Lane {
 }
 
 // Shared State: In-memory storage using Arc and RwLock for thread safety
-pub type SharedRetros = Arc<RwLock<Vec<Retro>>>;
+pub type SharedRetros = Arc<RwLock<HashMap<Uuid, Retro>>>;
 pub type SharedUsers = Arc<RwLock<HashMap<Uuid, User>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,15 +90,12 @@ pub struct CardAdded {
 
 #[juniper::graphql_object(context = Context)]
 impl CardAdded {
-    fn retro(&self, context: &Context) -> Retro {
-        context.retros.read().unwrap().iter()
-            .filter(|retro| retro.id == self.retro_id).next()
-            .unwrap().clone()
+    async fn retro(&self, context: &Context) -> Retro {
+        context.persistence_manager.get_retro(&self.retro_id).await.unwrap()
     }
 
-    fn lane(&self, context: &Context) -> Lane {
-        let retro = context.retros.read().unwrap().iter()
-        .filter(|retro| retro.id == self.retro_id).next().unwrap().clone();
+    async fn lane(&self, context: &Context) -> Lane {
+        let retro = context.persistence_manager.get_retro(&self.retro_id).await.unwrap();
 
         retro.lanes.iter().filter(|lane| lane.id == self.lane_id).next().unwrap().clone()
     }
@@ -95,10 +113,8 @@ pub struct UserListUpdated {
 
 #[juniper::graphql_object(context = Context)]
 impl UserListUpdated {
-    fn retro(&self, context: &Context) -> Retro {
-        context.retros.read().unwrap().iter()
-            .filter(|retro| retro.id == self.retro_id).next()
-            .unwrap().clone()
+    async fn retro(&self, context: &Context) -> Retro {
+        context.persistence_manager.get_retro(&self.retro_id).await.unwrap()
     }
 
     fn participants(&self) -> &Vec<RetroParticipant> {
@@ -115,10 +131,8 @@ pub struct StepUpdated {
 
 #[juniper::graphql_object(context = Context)]
 impl StepUpdated {
-    fn retro(&self, context: &Context) -> Retro {
-        context.retros.read().unwrap().iter()
-            .filter(|retro| retro.id == self.retro_id).next()
-            .unwrap().clone()
+    async fn retro(&self, context: &Context) -> Retro {
+        context.persistence_manager.get_retro(&self.retro_id).await.unwrap()
     }
 
     fn step(&self) -> &RetroStep {

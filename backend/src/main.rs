@@ -1,6 +1,7 @@
 mod models;
 mod schema;
 mod context;
+mod database;
 
 use std::{collections::HashMap, env, sync::{Arc, RwLock}, time::Duration};
 
@@ -13,10 +14,11 @@ use actix_web::{
 };
 
 use context::Context;
+use database::PersistenceManager;
 use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 
-use models::{SharedRetros, SharedUsers};
+use models::{ServiceConfig, ServiceMode, SharedRetros, SharedUsers};
 use schema::{create_schema, Schema};
 
 async fn playground() -> Result<HttpResponse, Error> {
@@ -69,11 +71,25 @@ async fn main() -> std::io::Result<()> {
     env::set_var("RUST_LOG", "info");
     env_logger::init();
 
-    let retros: SharedRetros = Arc::new(RwLock::new(vec![]));
+    let service_config: ServiceConfig = confy::load("retro", Some("services")).expect("Failed to load configuration");
+    let retros: SharedRetros = Arc::new(RwLock::new(HashMap::new()));
     let users: SharedUsers = Arc::new(RwLock::new(HashMap::new()));
+
+    println!("Starting server from config file at: {:?}", confy::get_configuration_file_path("retro", Some("services")).unwrap());
+    println!("Starting server in mode: {:?}", service_config.mode);
+
+    let persistence_manager: PersistenceManager  = match service_config.mode {
+        ServiceMode::MEMORY => {
+            database::PersistenceManager::new_memory(&service_config, retros.clone(), users.clone())
+        }
+        ServiceMode::MONGO => {
+            database::PersistenceManager::new_mongo(&service_config).await
+        }
+    };
+
     let schema = Arc::new(create_schema());
 
-    let context = Arc::new(Context::new(retros.clone(), users.clone()));
+    let context = Arc::new(Context::new(persistence_manager));
 
     HttpServer::new(move || {
         App::new()
