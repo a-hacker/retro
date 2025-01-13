@@ -2,7 +2,9 @@
 
 import React from 'react';
 import {
+  from,
   ApolloClient,
+  ApolloLink,
   InMemoryCache,
   ApolloProvider as Provider,
   createHttpLink,
@@ -11,6 +13,8 @@ import {
 import { getMainDefinition } from '@apollo/client/utilities';
 import { createClient } from 'graphql-ws';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
+
+let access_token_name = "Authorization";
 
 // Create an http link to the GraphQL server
 const httpLink = createHttpLink({
@@ -21,6 +25,13 @@ const httpLink = createHttpLink({
 const wsLink = new GraphQLWsLink(
   createClient({
     url: 'ws://localhost:8000/subscriptions', // Backend WebSocket endpoint
+    connectionParams: {
+      authorization: sessionStorage.getItem('access_token'),
+      headers: {
+        Authorization: sessionStorage.getItem('access_token'),
+        refresh_token: sessionStorage.getItem('refresh_token'),
+      }
+    }
   })
 );
 
@@ -38,9 +49,23 @@ const splitLink = split(
   httpLink,
 );
 
+const authLink = new ApolloLink((operation, forward) => {
+  const access_token = sessionStorage.getItem('access_token')
+  const refresh_token = sessionStorage.getItem('refresh_token')
+  console.log("Adding access tokens")
+
+  operation.setContext(({ headers }) => ({ headers: {
+    Authorization: access_token,
+    refresh_token: refresh_token,
+    ...headers,
+  }}));
+
+  return forward(operation)
+})
+
 // Initialize Apollo Client
 const client = new ApolloClient({
-  link: splitLink,
+  link: from([authLink, splitLink]),
   cache: new InMemoryCache(),
 });
 

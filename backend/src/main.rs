@@ -2,23 +2,29 @@ mod models;
 mod schema;
 mod context;
 mod database;
+mod auth;
 
 use std::{collections::HashMap, env, sync::{Arc, RwLock}, time::Duration};
 
 use actix_cors::Cors;
+use actix_jwt_auth_middleware::{use_jwt::UseJWTOnApp, AuthError, AuthResult, Authority, TokenSigner};
 use actix_web::{
     http::header,
     middleware,
     web::{self, Data},
     App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+use auth::Claims;
+use ed25519_compact::KeyPair;
+use jwt_compact::alg::Ed25519;
 
-use context::Context;
+use context::ContextBuilder;
 use database::PersistenceManager;
 use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 
 use models::{ServiceConfig, ServiceMode, SharedRetros, SharedUsers};
+use mongodb::bson::oid::ObjectId;
 use schema::{create_schema, Schema};
 
 async fn playground() -> Result<HttpResponse, Error> {
@@ -33,9 +39,14 @@ async fn graphql(
     req: HttpRequest,
     payload: web::Payload,
     schema: Data<Schema>,
-    context: Data<Context>,
+    context: Data<ContextBuilder>,
+    claims: auth::Claims,
 ) -> Result<HttpResponse, Error> {
-    let context = Context::from_self(&context);
+    let context_builder = ContextBuilder::from_self(&context);
+    
+    let active_user = context_builder.persistence_manager.get_user(&claims.subject_id).await.unwrap();
+    let context = context_builder.with_active_user(active_user).build();
+    
     graphql_handler(&schema, &context, req, payload).await
 }
 
@@ -54,9 +65,13 @@ async fn subscriptions(
     req: HttpRequest,
     stream: web::Payload,
     schema: Data<Schema>,
-    context: Data<Context>,
+    context: Data<ContextBuilder>,
+    claims: auth::Claims,
 ) -> Result<HttpResponse, Error> {
-    let context = Context::from_self(&context);
+    let context_builder = ContextBuilder::from_self(&context);
+    let active_user = context_builder.persistence_manager.get_user(&claims.subject_id).await.unwrap();
+    let context = context_builder.with_active_user(active_user).build();
+
     let config = ConnectionConfig::new(context);
     let schema = schema.into_inner();
     // set the keep alive interval to 15 secs so that it doesn't timeout in playground
@@ -66,10 +81,37 @@ async fn subscriptions(
     subscriptions::ws_handler(req, stream, schema, config).await
 }
 
+async fn login(request: web::Json<models::LoginRequest>, context: Data<ContextBuilder>, cookie_signer: web::Data<TokenSigner<Claims, Ed25519>>) -> AuthResult<HttpResponse> {
+    let user = context.persistence_manager.validate_user(&request).await.map_err(|s| AuthError::NoTokenSigner)?;
+    let claim = auth::Claims::new(user._id);
+    Ok(HttpResponse::Ok()
+        .append_header((cookie_signer.access_token_name(), cookie_signer.create_access_header_value(&claim)?))
+        .append_header((cookie_signer.refresh_token_name(), cookie_signer.create_refresh_header_value(&claim)?))
+        .body("You are now logged in"))
+}
+
+async fn create_user(request: web::Json<models::LoginRequest>, context: Data<ContextBuilder>, cookie_signer: web::Data<TokenSigner<Claims, Ed25519>>) -> AuthResult<HttpResponse> {
+    let new_user = models::User {
+        _id: ObjectId::new(),
+        username: request.username.clone(),
+    };
+    let user = context.persistence_manager.create_user(new_user).await.map_err(|s| AuthError::NoTokenSigner)?;
+    let claim = auth::Claims::new(user._id);
+    Ok(HttpResponse::Ok()
+        .append_header((cookie_signer.access_token_name(), cookie_signer.create_access_header_value(&claim)?))
+        .append_header((cookie_signer.refresh_token_name(), cookie_signer.create_refresh_header_value(&claim)?))
+        .body("You are now logged in"))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env::set_var("RUST_LOG", "info");
     env_logger::init();
+
+    let KeyPair {
+        pk: public_key,
+        sk: secret_key,
+    } = KeyPair::generate();
 
     let service_config: ServiceConfig = confy::load("retro", Some("services")).expect("Failed to load configuration");
     let retros: SharedRetros = Arc::new(RwLock::new(HashMap::new()));
@@ -89,32 +131,46 @@ async fn main() -> std::io::Result<()> {
 
     let schema = Arc::new(create_schema());
 
-    let context = Arc::new(Context::new(persistence_manager));
+    let context = Arc::new(ContextBuilder::new(persistence_manager));
 
     HttpServer::new(move || {
+        let authority = Authority::<auth::Claims, Ed25519, _, _>::new()
+            .refresh_authorizer(|| async move { Ok(()) })
+            .enable_header_tokens(true)
+            .enable_cookie_tokens(false)
+            .access_token_name("Authorization")
+            .token_signer(Some(
+                TokenSigner::new()
+                    .signing_key(secret_key.clone())
+                    .algorithm(Ed25519)
+                    .build()
+                    .expect(""),
+            ))
+            .verifying_key(public_key)
+            .build()
+            .expect("");
+
         App::new()
             .app_data(Data::from(retros.clone()))
             .app_data(Data::from(schema.clone()))
             .app_data(Data::from(context.clone()))
             .wrap(
-                Cors::default()
-                    .allow_any_origin()
-                    .allowed_methods(vec!["POST", "GET"])
-                    .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
-                    .allowed_header(header::CONTENT_TYPE)
-                    .supports_credentials()
-                    .max_age(3600),
+                Cors::permissive()
             )
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
-            .service(web::resource("/subscriptions").route(web::get().to(subscriptions)))
-            .service(
-                web::resource("/graphql")
-                    .route(web::post().to(graphql))
-                    .route(web::get().to(graphql)),
-            )
-            .service(web::resource("/playground").route(web::get().to(playground)))
-            .service(web::resource("/graphiql").route(web::get().to(graphiql)))
+            .service(web::resource("/login").route(web::post().to(login)))
+            .service(web::resource("/signup").route(web::post().to(create_user)))
+            .use_jwt(authority, web::scope("")
+                .service(web::resource("/subscriptions").route(web::get().to(subscriptions)))
+                .service(
+                    web::resource("/graphql")
+                        .route(web::post().to(graphql))
+                        .route(web::get().to(graphql)),
+                )
+                .service(web::resource("/playground").route(web::get().to(playground)))
+                .service(web::resource("/graphiql").route(web::get().to(graphiql)))
+                )
             .default_service(web::to(homepage))
     })
     .bind("127.0.0.1:8000")?

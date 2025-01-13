@@ -25,10 +25,8 @@ const EDIT_CARD = gql`
   mutation EditCard($retroId: Uuid!, $cardId: Uuid!, $text: String!) {
     editCard(retroId: $retroId, cardId: $cardId, text: $text) {
       id
-      creator {
-        id
-      }
       text
+      owned
     }
   }
 `;
@@ -57,7 +55,7 @@ const CreateCardComponent = ({card, user, retroId}) => {
     setEditStatus(false)
   }
 
-  if (card.creator.id !== user) {
+  if (!card.owned) {
     return (
       <Paper elevation={1} sx={{ p: 1, mb: 1, }}>
         <Typography sx={{ filter: 'blur(4px)', userSelect: 'none' }}>{card.text}</Typography>

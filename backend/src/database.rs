@@ -1,17 +1,15 @@
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use futures::stream::StreamExt;
-use mongodb::{bson::{self, doc, Document}, Collection};
-use uuid::Uuid;
+use mongodb::{bson::{self, doc, oid::ObjectId, Document}, Collection};
 
 use crate::models::{Retro, ServiceConfig, SharedRetros, SharedUsers, User};
 
 #[async_trait]
 trait PersistenceHandler: Clone {
-    async fn get_retro(&self, retro_id: &Uuid) -> Result<Retro, String>;
+    async fn get_retro(&self, retro_id: &ObjectId) -> Result<Retro, String>;
     async fn get_retros(&self) -> Result<Vec<Retro>, String>;
-    async fn get_user(&self, user_id: &Uuid) -> Result<User, String>;
+    async fn get_user(&self, user_id: &ObjectId) -> Result<User, String>;
+    async fn validate_user(&self, user_id: &crate::models::LoginRequest) -> Result<User, String>;
     async fn get_users(&self) -> Result<Vec<User>, String>;
     async fn create_user(&self, user: User) -> Result<User, String>;
     async fn create_retro(&self, retro: Retro) -> Result<Retro, String>;
@@ -37,7 +35,7 @@ impl MemoryHandler {
 
 #[async_trait]
 impl PersistenceHandler for MemoryHandler {
-    async fn get_retro(&self, retro_id: &Uuid) -> Result<Retro, String> {
+    async fn get_retro(&self, retro_id: &ObjectId) -> Result<Retro, String> {
         let retros = self.retros.read().unwrap();
         match retros.get(retro_id) {
             Some(retro) => Ok(retro.clone()),
@@ -51,7 +49,7 @@ impl PersistenceHandler for MemoryHandler {
         Ok(retros)
     }
 
-    async fn get_user(&self, user_id: &Uuid) -> Result<User, String> {
+    async fn get_user(&self, user_id: &ObjectId) -> Result<User, String> {
         let users = self.users.read().unwrap();
         match users.get(user_id) {
             Some(user) => Ok(user.clone()),
@@ -67,26 +65,31 @@ impl PersistenceHandler for MemoryHandler {
 
     async fn create_user(&self, user: User) -> Result<User, String> {
         let mut users = self.users.write().unwrap();
-        users.insert(user.id, user.clone());
+        users.insert(user._id, user.clone());
         Ok(user)
     }
 
     async fn create_retro(&self, retro: Retro) -> Result<Retro, String> {
         let mut retros = self.retros.write().unwrap();
-        retros.insert(retro.id, retro.clone());
+        retros.insert(retro._id, retro.clone());
         Ok(retro)
     }
 
     async fn update_retro(&self, retro: Retro) -> Result<Retro, String> {
         let mut retros = self.retros.write().unwrap();
-        retros.insert(retro.id, retro.clone());
+        retros.insert(retro._id, retro.clone());
         Ok(retro)
     }
 
     async fn update_user(&self, user: User) -> Result<User, String> {
         let mut users = self.users.write().unwrap();
-        users.insert(user.id, user.clone());
+        users.insert(user._id, user.clone());
         Ok(user)
+    }
+
+    async fn validate_user(&self, user_id: &crate::models::LoginRequest) -> Result<User, String> {
+        let users = self.users.read().unwrap();
+        users.values().find(|user| user.username == user_id.username).map(|user| user.clone()).ok_or("User not found".to_string())
     }
 }
 
@@ -106,9 +109,9 @@ impl MongoHandler {
 
 #[async_trait]
 impl PersistenceHandler for MongoHandler {
-    async fn get_retro(&self, retro_id: &Uuid) -> Result<Retro, String> {
+    async fn get_retro(&self, retro_id: &ObjectId) -> Result<Retro, String> {
         let retros = self.db.collection("retros");
-        let filter = doc! { "id": retro_id.to_string() };
+        let filter = doc! { "_id": retro_id };
         let result = retros.find_one(filter).await.unwrap();
         match result {
             Some(doc) => {
@@ -130,9 +133,9 @@ impl PersistenceHandler for MongoHandler {
         Ok(result)
     }
 
-    async fn get_user(&self, user_id: &Uuid) -> Result<User, String> {
+    async fn get_user(&self, user_id: &ObjectId) -> Result<User, String> {
         let users = self.db.collection("users");
-        let filter = doc! { "id": user_id.to_string() };
+        let filter = doc! { "_id": user_id };
         let result = users.find_one(filter).await.unwrap();
         match result {
             Some(doc) => {
@@ -171,18 +174,31 @@ impl PersistenceHandler for MongoHandler {
 
     async fn update_retro(&self, retro: Retro) -> Result<Retro, String> {
         let retros: Collection<Document> = self.db.collection("retros");
-        let filter = doc! { "id": retro.id.to_string() };
+        let filter = doc! { "_id": retro._id };
         let doc = bson::to_document(&retro).unwrap();
-        retros.update_one(filter, doc).await.unwrap();
+        retros.replace_one(filter, doc).await.unwrap();
         Ok(retro)
     }
 
     async fn update_user(&self, user: User) -> Result<User, String> {
         let users: Collection<Document> = self.db.collection("users");
-        let filter = doc! { "id": user.id.to_string() };
+        let filter = doc! { "_id": user._id };
         let doc = bson::to_document(&user).unwrap();
-        users.update_one(filter, doc).await.unwrap();
+        users.replace_one(filter, doc).await.unwrap();
         Ok(user)
+    }
+
+    async fn validate_user(&self, login_request: &crate::models::LoginRequest) -> Result<User, String> {
+        let users = self.db.collection("users");
+        let filter = doc! { "username": login_request.username.clone() };
+        let result = users.find_one(filter).await.unwrap();
+        match result {
+            Some(doc) => {
+                let user: User = bson::from_bson(bson::Bson::Document(doc)).unwrap();
+                Ok(user)
+            }
+            None => Err("User not found".to_string()),
+        }
     }
 }
 
@@ -203,7 +219,7 @@ impl PersistenceManager {
         PersistenceManager::Mongo(handler)
     }
 
-    pub async fn get_retro(&self, retro_id: &Uuid) -> Result<Retro, String> {
+    pub async fn get_retro(&self, retro_id: &ObjectId) -> Result<Retro, String> {
         match self {
             PersistenceManager::Memory(handler) => handler.get_retro(retro_id).await,
             PersistenceManager::Mongo(handler) => handler.get_retro(retro_id).await,
@@ -217,7 +233,7 @@ impl PersistenceManager {
         }
     }
 
-    pub async fn get_user(&self, user_id: &Uuid) -> Result<User, String> {
+    pub async fn get_user(&self, user_id: &ObjectId) -> Result<User, String> {
         match self {
             PersistenceManager::Memory(handler) => handler.get_user(user_id).await,
             PersistenceManager::Mongo(handler) => handler.get_user(user_id).await,
@@ -256,6 +272,13 @@ impl PersistenceManager {
         match self {
             PersistenceManager::Memory(handler) => handler.update_user(user).await,
             PersistenceManager::Mongo(handler) => handler.update_user(user).await,
+        }
+    }
+
+    pub async fn validate_user(&self, login_request: &crate::models::LoginRequest) -> Result<User, String> {
+        match self {
+            PersistenceManager::Memory(handler) => handler.validate_user(login_request).await,
+            PersistenceManager::Mongo(handler) => handler.validate_user(login_request).await,
         }
     }
 }

@@ -16,7 +16,7 @@ import { useSnackbar } from 'notistack';
 
 // Define GraphQL queries and mutations
 const GET_RETRO_BY_ID = gql`
-  query GetRetroById($id: Uuid!) {
+  query GetRetroById($id: String!) {
     retroById(id: $id) {
       id
       retroName
@@ -41,10 +41,8 @@ const GET_RETRO_BY_ID = gql`
         priority
         cards {
           id
-          creator {
-            id
-          }
           text
+          owned
         }
       }
     }
@@ -52,8 +50,8 @@ const GET_RETRO_BY_ID = gql`
 `;
 
 const ADD_USER = gql`
-  mutation AddUser($retroId: Uuid!, $userId: Uuid!) {
-    enterRetro(retroId: $retroId, userId: $userId) {
+  mutation AddUser($retroId: String!) {
+    enterRetro(retroId: $retroId) {
       user {
         username
       }
@@ -62,8 +60,8 @@ const ADD_USER = gql`
 `;
 
 const LEAVE_RETRO = gql`
-  mutation LeaveRetro($retroId: Uuid!, $userId: Uuid!) {
-    leaveRetro(retroId: $retroId, userId: $userId) {
+  mutation LeaveRetro($retroId: String!) {
+    leaveRetro(retroId: $retroId) {
       user {
         username
       }
@@ -75,16 +73,14 @@ const ADD_CARD = gql`
   mutation AddCard($input: AddCardInput!) {
     addCard(input: $input) {
       id
-      creator {
-        id
-      }
       text
+      owned
     }
   }
 `;
 
 const UPDATE_STEP = gql`
-  mutation UpdateStep($retroId: Uuid!, $step: RetroStep!) {
+  mutation UpdateStep($retroId: String!, $step: RetroStep!) {
     updateRetroStep(retroId: $retroId, step: $step) {
       step
     }
@@ -92,7 +88,7 @@ const UPDATE_STEP = gql`
 `;
 
 const CARD_ADDED_SUBSCRIPTION = gql`
-  subscription OnCardAdded($retroId: Uuid!) {
+  subscription OnCardAdded($retroId: String!) {
     cardAdded(retroId: $retroId) {
       ... on CardAdded {
         retro {
@@ -102,18 +98,14 @@ const CARD_ADDED_SUBSCRIPTION = gql`
           id
           cards {
             id
-            creator {
-              id
-            }
             text
+            owned
           }
         }
         card {
           id
-          creator {
-            id
-          }
           text
+          owned
         }
       }
     }
@@ -121,7 +113,7 @@ const CARD_ADDED_SUBSCRIPTION = gql`
 `;
 
 const USER_LIST_UPDATED_SUBSCRIPTION = gql`
-  subscription OnUserListUpdated($retroId: Uuid!) {
+  subscription OnUserListUpdated($retroId: String!) {
     userListUpdated(retroId: $retroId) {
       ... on UserListUpdated {
         participants {
@@ -139,7 +131,7 @@ const USER_LIST_UPDATED_SUBSCRIPTION = gql`
 `;
 
 const UPDATE_STEP_SUBSCRIPTION = gql`
-  subscription OnStepUpdated($retroId: Uuid!) {
+  subscription OnStepUpdated($retroId: String!) {
     stepUpdate(retroId: $retroId) {
       ... on StepUpdated {
         step
@@ -148,7 +140,7 @@ const UPDATE_STEP_SUBSCRIPTION = gql`
   }
 `;
 
-const CardBox = ({ retro, username, user_id, subscribeToNewCards, subscribeToUsers, handleLeaveRetro }) => {
+const CardBox = ({ retro, username, subscribeToNewCards, subscribeToUsers, handleLeaveRetro }) => {
   useEffect(() => subscribeToNewCards(), [subscribeToNewCards]);
   useEffect(() => subscribeToUsers(), [subscribeToUsers]);
   const { enqueueSnackbar } = useSnackbar();
@@ -173,7 +165,6 @@ const CardBox = ({ retro, username, user_id, subscribeToNewCards, subscribeToUse
         input: {
           retroId: retro.id,
           laneId,
-          creatorId: user_id,
           text,
         },
       },
@@ -226,7 +217,6 @@ const RetroPage = () => {
   const { enqueueSnackbar } = useSnackbar();
 
   const username = sessionStorage.getItem('username');
-  const user_id = sessionStorage.getItem('userid');
   const [enteredRetro, enterRetro] = useState(false);
 
   // Mutation to add a user
@@ -241,7 +231,6 @@ const RetroPage = () => {
     addUser({
       variables: {
         retroId: id,
-        userId: user_id,
       },
     });
   }
@@ -332,7 +321,6 @@ const RetroPage = () => {
     leaveRetro({
       variables: {
         retroId: retro.id,
-        userId: user_id,
       },
     })
       .catch((err) => {
@@ -355,7 +343,7 @@ const RetroPage = () => {
   return (
     <Box display="flex" height="100vh">
       <Sidebar participants={retro.participants} subscribeToUsers={subscribeUsers} />
-      <CardBox retro={retro} username={username} user_id={user_id} handleLeaveRetro={handleLeaveRetro} subscribeToUsers={subscribeUsers} subscribeToNewCards={subscribeToCards} />
+      <CardBox retro={retro} username={username} handleLeaveRetro={handleLeaveRetro} subscribeToUsers={subscribeUsers} subscribeToNewCards={subscribeToCards} />
       <StepBar currentStep={retro.step} handleRetroStepClick={handleRetroStepClick} subscribeToStep={subscribeToStep} />
     </Box>
   );
