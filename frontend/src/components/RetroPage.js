@@ -23,6 +23,7 @@ const GET_RETRO_BY_ID = gql`
       creator {
         id
         username
+        activeUser
       }
       step
       createdAt
@@ -30,9 +31,7 @@ const GET_RETRO_BY_ID = gql`
         user {
           id
           username
-        }
-        votes {
-          id
+          activeUser
         }
       }
       lanes {
@@ -43,6 +42,8 @@ const GET_RETRO_BY_ID = gql`
           id
           text
           owned
+          voted
+          votes
         }
       }
     }
@@ -75,6 +76,8 @@ const ADD_CARD = gql`
       id
       text
       owned
+      voted
+      votes
     }
   }
 `;
@@ -96,16 +99,22 @@ const CARD_ADDED_SUBSCRIPTION = gql`
         }
         lane {
           id
+          title
+          priority
           cards {
             id
             text
             owned
+            voted
+            votes
           }
         }
         card {
           id
           text
           owned
+          voted
+          votes
         }
       }
     }
@@ -120,9 +129,7 @@ const USER_LIST_UPDATED_SUBSCRIPTION = gql`
           user {
             id
             username
-          }
-          votes {
-            id
+            activeUser
           }
         }
       }

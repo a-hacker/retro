@@ -89,7 +89,7 @@ impl PersistenceHandler for MemoryHandler {
 
     async fn validate_user(&self, user_id: &crate::models::LoginRequest) -> Result<User, String> {
         let users = self.users.read().unwrap();
-        users.values().find(|user| user.username == user_id.username).map(|user| user.clone()).ok_or("User not found".to_string())
+        users.values().find(|user| user.username == user_id.username).cloned().ok_or("User not found".to_string())
     }
 }
 

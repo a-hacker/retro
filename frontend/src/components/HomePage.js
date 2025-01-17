@@ -17,6 +17,7 @@ const HomePage = () => {
 
   const handleSaveUsername = (name) => {
     setUsername(name);
+    sessionStorage.setItem('username', name);
   };
 
   return (

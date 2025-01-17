@@ -37,12 +37,14 @@ pub struct LoginRequest {
     pub username: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Card {
     pub id: ObjectId,
     pub creator_id: ObjectId,
+    pub retro_id: ObjectId,
     pub text: String,
-    pub subcards: Vec<Card>
+    pub subcards: Vec<Card>,
+    pub votes: HashSet<ObjectId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, GraphQLEnum)]
@@ -58,7 +60,6 @@ pub enum RetroStep {
 pub struct RetroParticipant {
     pub user: ObjectId,
     pub retro_id: ObjectId,
-    pub votes: HashSet<ObjectId>,
 }
 
 // Represents a Retro
@@ -102,7 +103,7 @@ impl CardAdded {
     async fn lane(&self, context: &Context) -> Lane {
         let retro = context.persistence_manager.get_retro(&self.retro_id).await.unwrap();
 
-        retro.lanes.iter().filter(|lane| lane.id == self.lane_id).next().unwrap().clone()
+        retro.lanes.iter().find(|lane| lane.id == self.lane_id).unwrap().clone()
     }
 
     fn card(&self) -> &Card {

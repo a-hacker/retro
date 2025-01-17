@@ -10,17 +10,7 @@ const LoginForm = ({ onSave }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      // const response = await axios({
-      //   method: 'post',
-      //   url: 'http://localhost:8000/login',
-      //   data: {
-      //     username,
-      //   },
-      //   withCredentials: false,
-      // })
-
       const response = await axios.post('http://localhost:8000/login', { username });
-      console.log(response.headers.get('access_token'));
       
       sessionStorage.setItem('access_token', response.headers['access_token']);
       sessionStorage.setItem('refresh_token', response.headers['refresh_token']);

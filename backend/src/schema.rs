@@ -7,7 +7,7 @@ use std::str::FromStr;
 use chrono::prelude::*;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 #[juniper::graphql_object(context = Context)]
 impl User {
@@ -17,6 +17,10 @@ impl User {
 
     fn username(&self) -> &str {
         &self.username
+    }
+
+    fn active_user(&self, context: &Context) -> bool {
+        self._id == context.active_user._id
     }
 }
 
@@ -41,6 +45,15 @@ impl Card {
 
     fn owned(&self, context: &Context) -> bool {
         self.creator_id == context.active_user._id
+    }
+
+    async fn voted(&self, context: &Context) -> bool {
+        let uid = context.active_user._id;
+        self.votes.contains(&uid)
+    }
+
+    fn votes(&self) -> i32 {
+        self.votes.len() as i32
     }
 }
 
@@ -73,21 +86,6 @@ impl RetroParticipant {
 
     async fn retro(&self, context: &Context) -> Retro {
         context.persistence_manager.get_retro(&self.retro_id).await.unwrap()
-    }
-
-    async fn votes(&self, context: &Context) -> Vec<Card> {
-        let retros = context.persistence_manager.get_retros().await.unwrap();
-        if let Some(retro) = retros.iter().find(|r| r._id == self.retro_id) {
-            let mut cards: HashMap<ObjectId, Card> = HashMap::new();
-
-            for lane in retro.lanes.iter() {
-                let matched_cards: HashMap<ObjectId, Card> = lane.cards.iter().filter_map(|c| self.votes.get(&c.id).map(|id| (*id, c.clone()))).collect();
-                cards.extend(matched_cards);
-            }
-            self.votes.iter().filter_map(|card_id| cards.get(card_id)).cloned().collect()
-        } else {
-            Vec::new()
-        }
     }
 }
 
@@ -309,11 +307,10 @@ impl MutationRoot {
         let uid = context.active_user._id;
         let rid = ObjectId::from_str(&retro_id).unwrap();
         let mut retro = context.persistence_manager.get_retro(&rid).await.unwrap();
-        if retro.participants.iter().find(|p| p.user == uid).is_none() {
+        if !retro.participants.iter().any(|p| p.user == uid) {
             let participant = RetroParticipant {
                 user: uid,
                 retro_id: rid,
-                votes: HashSet::new()
             };
             retro.participants.push(participant.clone());
             context.persistence_manager.update_retro(retro.clone()).await.unwrap();
@@ -351,13 +348,15 @@ impl MutationRoot {
         let mut retro = context.persistence_manager.get_retro(&rid).await.unwrap();
         let new_card = Card {
             id: ObjectId::new(),
+            retro_id: rid,
             creator_id: uid,
             text: input.text.clone(),
-            subcards: Vec::new()
+            subcards: Vec::new(),
+            votes: HashSet::new(),
         };
 
         let lane_id = ObjectId::from_str(&input.lane_id).unwrap();
-        let lane = retro.lanes.iter_mut().filter(|l| l.id == lane_id).next();
+        let lane = retro.lanes.iter_mut().find(|l| l.id == lane_id);
 
         if let Some(l) = lane {
             l.cards.push(new_card.clone());
@@ -401,24 +400,35 @@ impl MutationRoot {
     }
 
     // Vote for a card in the retro
-    async fn vote_card(context: &Context, retro_id: String, card_id: String, vote: bool) -> Option<Vec<RetroParticipant>> {
+    async fn vote_card(context: &Context, retro_id: String, card_id: String, vote: bool) -> Option<Card> {
         let uid = context.active_user._id;
         let rid = ObjectId::from_str(&retro_id).unwrap();
         let cid = ObjectId::from_str(&card_id).unwrap();
         let mut retro = context.persistence_manager.get_retro(&rid).await.unwrap();
-        if let Some(participant) = retro.participants.iter_mut().find(|p| p.user == uid) {
-            if vote {
-                participant.votes.insert(cid);
-            } else {
-                participant.votes.remove(&cid);
+        if let Some(lane) = retro.lanes.iter_mut().find(|l| l.cards.iter().any(|c| c.id == cid)) {
+            let lane_id = lane.id;
+            let card = lane.cards.iter_mut().find(|c| c.id == cid).unwrap();
+
+            if card.creator_id != uid {
+                return None;
             }
+
+            if vote {
+                card.votes.insert(uid);
+            } else {
+                card.votes.remove(&uid);
+            }
+
+            let new_card = card.clone();
+
             context.persistence_manager.update_retro(retro.clone()).await.unwrap();
 
-            let _ = context.user_update_sender.send(SubscriptionUpdate::create_user_list_update(
+            let _ = context.card_addition_sender.send(SubscriptionUpdate::create_card_added(
                 retro._id,
-                retro.participants.clone()
+                lane_id,
+                new_card.clone(),
             ));
-            Some(retro.participants.clone())
+            Some(new_card)
         } else {
             None
         }

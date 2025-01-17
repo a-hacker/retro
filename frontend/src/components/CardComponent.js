@@ -8,30 +8,30 @@ import { useMutation, gql } from '@apollo/client';
 import { useSnackbar } from 'notistack';
 
 const VOTE_CARD = gql`
-  mutation VoteCard($retroId: Uuid!, $userId: Uuid!, $cardId: Uuid!, $vote: Boolean!) {
-    voteCard(retroId: $retroId, userId: $userId, cardId: $cardId, vote: $vote) {
-      user {
-        id
-        username
-      }
-      votes {
-        id
-      }
+  mutation VoteCard($retroId: String!, $cardId: String!, $vote: Boolean!) {
+    voteCard(retroId: $retroId, cardId: $cardId, vote: $vote) {
+      id
+      text
+      owned
+      voted
+      votes
     }
   }
 `;
 
 const EDIT_CARD = gql`
-  mutation EditCard($retroId: Uuid!, $cardId: Uuid!, $text: String!) {
+  mutation EditCard($retroId: String!, $cardId: String!, $text: String!) {
     editCard(retroId: $retroId, cardId: $cardId, text: $text) {
       id
       text
       owned
+      voted
+      votes
     }
   }
 `;
 
-const CreateCardComponent = ({card, user, retroId}) => {
+const CreateCardComponent = ({card, retroId}) => {
   const { enqueueSnackbar } = useSnackbar();
   const [edittingCard, setEditStatus] = useState(false);
   const [newCardText, setNewCardText] = useState(card.text);
@@ -90,7 +90,7 @@ const CreateCardComponent = ({card, user, retroId}) => {
   );
 };
 
-const VoteCardComponent = ({card, participants, user, retroId}) => {
+const VoteCardComponent = ({card, retroId}) => {
   // Mutation to vote on a card
   const { enqueueSnackbar } = useSnackbar();
   const [voteCard] = useMutation(VOTE_CARD, {
@@ -103,7 +103,6 @@ const VoteCardComponent = ({card, participants, user, retroId}) => {
     voteCard({
       variables: {
         retroId: retroId,
-        userId: user,
         cardId: cardId,
         vote: vote
       },
@@ -112,12 +111,10 @@ const VoteCardComponent = ({card, participants, user, retroId}) => {
     })
   }
 
-  let myParticipant = participants.find(p => p.user.id === user) || {"votes": []}
-
   return (
     <Paper elevation={1} sx={{ p: 1, mb: 1, }}>
       <Typography>{card.text}</Typography>
-      {!myParticipant.votes.some(c => c.id === card.id) ? 
+      {!card.voted ? 
         <IconButton size='small'>
           <Add onClick={() => handleVoteCard(card.id, true)}/>
         </IconButton> :
@@ -129,23 +126,11 @@ const VoteCardComponent = ({card, participants, user, retroId}) => {
   );
 };
 
-const ReviewCardComponent = ({card, participants}) => {
-  let cardVotes = {}
-  participants.forEach(participant => {
-    participant.votes.forEach(vote => {
-      let card_id = vote.id
-      if (card_id in cardVotes) {
-        cardVotes[card_id] = cardVotes[card_id] + 1
-      } else {
-        cardVotes[card_id] = 1
-      }
-    })
-  })
-
+const ReviewCardComponent = ({card}) => {
   return (
     <Paper elevation={1} sx={{ p: 1, mb: 1, }}>
       <Typography>{card.text}</Typography>
-      <Typography>Votes: {cardVotes[card.id] || 0 }</Typography>
+      <Typography>Votes: {card.votes || 0 }</Typography>
     </Paper>
   );
 };
@@ -159,14 +144,14 @@ const DefaultCardComponent = ({card}) => {
 };
 
 
-const CardComponent = ({ card, participants, step, user, retroId }) => {
+const CardComponent = ({ card, step, retroId }) => {
   switch(step) {
     case "Writing":
-      return <CreateCardComponent card={card} user={user} retroId={retroId}/>
+      return <CreateCardComponent card={card} retroId={retroId}/>
     case "Voting":
-      return <VoteCardComponent card={card} participants={participants} user={user} retroId={retroId} />
+      return <VoteCardComponent card={card} retroId={retroId} />
     case "Reviewing":
-      return <ReviewCardComponent card={card} participants={participants} />
+      return <ReviewCardComponent card={card} />
     default:
       return <DefaultCardComponent card={card} />
   }
