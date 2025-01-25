@@ -1,22 +1,50 @@
-use juniper::{GraphQLObject, GraphQLUnion, GraphQLEnum};
+use juniper::{GraphQLUnion, GraphQLEnum};
+use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use crate::context::Context;
 use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
-use uuid::Uuid;
 
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, GraphQLObject)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ServiceMode {
+    MEMORY,
+    MONGO
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceConfig {
+    pub mode: ServiceMode,
+}
+
+impl Default for ServiceConfig {
+    fn default() -> Self {
+        ServiceConfig {
+            mode: ServiceMode::MEMORY
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct User {
-    pub id: Uuid,
+    pub _id: ObjectId,
     pub username: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LoginRequest {
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Card {
-    pub id: Uuid,
-    pub creator_id: Uuid,
+    pub id: ObjectId,
+    pub creator_id: ObjectId,
+    pub retro_id: ObjectId,
     pub text: String,
-    pub subcards: Vec<Card>
+    pub subcards: Vec<Card>,
+    pub votes: HashSet<ObjectId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, GraphQLEnum)]
@@ -30,17 +58,16 @@ pub enum RetroStep {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetroParticipant {
-    pub user: Uuid,
-    pub retro_id: Uuid,
-    pub votes: HashSet<Uuid>,
+    pub user: ObjectId,
+    pub retro_id: ObjectId,
 }
 
 // Represents a Retro
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Retro {
-    pub id: Uuid,
+    pub _id: ObjectId,
     pub retro_name: String,
-    pub creator_id: Uuid,
+    pub creator_id: ObjectId,
     pub step: RetroStep,
     pub created_at: String, // ISO 8601 format
     pub participants: Vec<RetroParticipant>,
@@ -50,36 +77,33 @@ pub struct Retro {
 // Categorized Cards within a Retro
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lane {
-    pub id: Uuid,
+    pub id: ObjectId,
     pub title: String,
     pub cards: Vec<Card>,
     pub priority: i32,
 }
 
 // Shared State: In-memory storage using Arc and RwLock for thread safety
-pub type SharedRetros = Arc<RwLock<Vec<Retro>>>;
-pub type SharedUsers = Arc<RwLock<HashMap<Uuid, User>>>;
+pub type SharedRetros = Arc<RwLock<HashMap<ObjectId, Retro>>>;
+pub type SharedUsers = Arc<RwLock<HashMap<ObjectId, User>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardAdded {
-    pub retro_id: Uuid,
-    pub lane_id: Uuid,
+    pub retro_id: ObjectId,
+    pub lane_id: ObjectId,
     pub card: Card,
 }
 
 #[juniper::graphql_object(context = Context)]
 impl CardAdded {
-    fn retro(&self, context: &Context) -> Retro {
-        context.retros.read().unwrap().iter()
-            .filter(|retro| retro.id == self.retro_id).next()
-            .unwrap().clone()
+    async fn retro(&self, context: &Context) -> Retro {
+        context.persistence_manager.get_retro(&self.retro_id).await.unwrap()
     }
 
-    fn lane(&self, context: &Context) -> Lane {
-        let retro = context.retros.read().unwrap().iter()
-        .filter(|retro| retro.id == self.retro_id).next().unwrap().clone();
+    async fn lane(&self, context: &Context) -> Lane {
+        let retro = context.persistence_manager.get_retro(&self.retro_id).await.unwrap();
 
-        retro.lanes.iter().filter(|lane| lane.id == self.lane_id).next().unwrap().clone()
+        retro.lanes.iter().find(|lane| lane.id == self.lane_id).unwrap().clone()
     }
 
     fn card(&self) -> &Card {
@@ -89,16 +113,14 @@ impl CardAdded {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserListUpdated {
-    pub retro_id: Uuid,
+    pub retro_id: ObjectId,
     pub participants: Vec<RetroParticipant>,
 }
 
 #[juniper::graphql_object(context = Context)]
 impl UserListUpdated {
-    fn retro(&self, context: &Context) -> Retro {
-        context.retros.read().unwrap().iter()
-            .filter(|retro| retro.id == self.retro_id).next()
-            .unwrap().clone()
+    async fn retro(&self, context: &Context) -> Retro {
+        context.persistence_manager.get_retro(&self.retro_id).await.unwrap()
     }
 
     fn participants(&self) -> &Vec<RetroParticipant> {
@@ -109,16 +131,14 @@ impl UserListUpdated {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepUpdated {
-    pub retro_id: Uuid,
+    pub retro_id: ObjectId,
     pub step: RetroStep,
 }
 
 #[juniper::graphql_object(context = Context)]
 impl StepUpdated {
-    fn retro(&self, context: &Context) -> Retro {
-        context.retros.read().unwrap().iter()
-            .filter(|retro| retro.id == self.retro_id).next()
-            .unwrap().clone()
+    async fn retro(&self, context: &Context) -> Retro {
+        context.persistence_manager.get_retro(&self.retro_id).await.unwrap()
     }
 
     fn step(&self) -> &RetroStep {
@@ -136,7 +156,7 @@ pub enum SubscriptionUpdate {
 }
 
 impl SubscriptionUpdate {
-    pub fn create_card_added(retro_id: Uuid, lane_id: Uuid, card: Card) -> Self {
+    pub fn create_card_added(retro_id: ObjectId, lane_id: ObjectId, card: Card) -> Self {
         let card_added = CardAdded {
             retro_id, lane_id, card
         };
@@ -144,7 +164,7 @@ impl SubscriptionUpdate {
         Self::CardAdded(card_added)
     }
 
-    pub fn create_user_list_update(retro_id: Uuid, participants: Vec<RetroParticipant>) -> Self {
+    pub fn create_user_list_update(retro_id: ObjectId, participants: Vec<RetroParticipant>) -> Self {
         let user_list_update = UserListUpdated {
             retro_id, participants
         };
@@ -152,7 +172,7 @@ impl SubscriptionUpdate {
         Self::UserListUpdated(user_list_update)
     }
 
-    pub fn create_step_update(retro_id: Uuid, step: RetroStep) -> Self {
+    pub fn create_step_update(retro_id: ObjectId, step: RetroStep) -> Self {
         let step_update = StepUpdated {
             retro_id, step
         };

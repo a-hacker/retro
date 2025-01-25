@@ -2,7 +2,9 @@
 
 import React from 'react';
 import {
+  from,
   ApolloClient,
+  ApolloLink,
   InMemoryCache,
   ApolloProvider as Provider,
   createHttpLink,
@@ -21,6 +23,9 @@ const httpLink = createHttpLink({
 const wsLink = new GraphQLWsLink(
   createClient({
     url: 'ws://localhost:8000/subscriptions', // Backend WebSocket endpoint
+    connectionParams: () => ({
+      access_token: sessionStorage.getItem('access_token'),
+    })
   })
 );
 
@@ -38,9 +43,22 @@ const splitLink = split(
   httpLink,
 );
 
+const authLink = new ApolloLink((operation, forward) => {
+  const access_token = sessionStorage.getItem('access_token')
+  const refresh_token = sessionStorage.getItem('refresh_token')
+
+  operation.setContext(({ headers }) => ({ headers: {
+    Authorization: access_token,
+    refresh_token: refresh_token,
+    ...headers,
+  }}));
+
+  return forward(operation)
+})
+
 // Initialize Apollo Client
 const client = new ApolloClient({
-  link: splitLink,
+  link: from([authLink, splitLink]),
   cache: new InMemoryCache(),
 });
 

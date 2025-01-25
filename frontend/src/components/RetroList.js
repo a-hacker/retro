@@ -39,7 +39,7 @@ const CREATE_RETRO = gql`
   }
 `;
 
-const RetroList = ({ username, user_id }) => {
+const RetroList = ({ username }) => {
   const [newRetroName, setNewRetroName] = useState('');
 
   // Fetch all retros
@@ -73,7 +73,6 @@ const RetroList = ({ username, user_id }) => {
       variables: {
         input: {
           retroName: trimmedName,
-          creatorId: user_id,
         },
       },
     })
