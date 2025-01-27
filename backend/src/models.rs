@@ -15,12 +15,44 @@ pub enum ServiceMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceConfig {
     pub mode: ServiceMode,
+    pub db: Option<DbConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbConfig {
+    pub host: String,
+    pub username: String,
+    pub password: String,
+    pub database: String,
+    pub auth_source: String,
+    pub replica_set: Option<String>,
+}
+
+impl Into<mongodb::options::ClientOptions> for DbConfig {
+    fn into(self) -> mongodb::options::ClientOptions {
+        let address = mongodb::options::ServerAddress::parse(&self.host).unwrap();
+        let credentials = mongodb::options::Credential::builder()
+            .username(self.username)
+            .password(self.password)
+            .source(self.auth_source)
+            .build();
+        let tls = mongodb::options::Tls::Enabled(mongodb::options::TlsOptions::default());
+
+        let client_options = mongodb::options::ClientOptions::builder()
+            .hosts(vec![address])
+            .credential(credentials)
+            .tls(tls)
+            .repl_set_name(self.replica_set)
+            .build();
+        client_options
+    }
 }
 
 impl Default for ServiceConfig {
     fn default() -> Self {
         ServiceConfig {
-            mode: ServiceMode::MEMORY
+            mode: ServiceMode::MEMORY,
+            db: None,
         }
     }
 }
