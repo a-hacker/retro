@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::stream::StreamExt;
 use mongodb::{bson::{self, doc, oid::ObjectId, Document}, Collection};
 
-use crate::models::{Retro, ServiceConfig, SharedRetros, SharedUsers, User};
+use crate::models::{DbConfig, Retro, ServiceConfig, SharedRetros, SharedUsers, User};
 
 #[async_trait]
 trait PersistenceHandler: Clone {
@@ -100,9 +100,9 @@ pub struct MongoHandler {
 }
 
 impl MongoHandler {
-    pub async fn new() -> MongoHandler {
-        let client = mongodb::Client::with_uri_str("mongodb://localhost:27017").await.unwrap();
-        let db = client.database("retro");
+    pub async fn new(db_config: &DbConfig) -> MongoHandler {
+        let client = mongodb::Client::with_options(db_config.clone().into()).unwrap();
+        let db = client.database(&db_config.database);
         MongoHandler { client, db }
     }
 }
@@ -215,7 +215,10 @@ impl PersistenceManager {
     }
 
     pub async fn new_mongo(config: &ServiceConfig) -> PersistenceManager {
-        let handler = MongoHandler::new().await;
+        let db_config = config.db.clone().unwrap();
+
+
+        let handler = MongoHandler::new(&db_config).await;
         PersistenceManager::Mongo(handler)
     }
 
