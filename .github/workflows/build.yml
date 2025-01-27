@@ -31,11 +31,11 @@ jobs:
         with:
           context: ./backend
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ vars.REGISTRY }}/ahacker-images/retro/backend:latest
+          tags: ${{ vars.REGISTRY }}/ahacker-images/retro:backend-latest
       - name: Build and push frontend image
         id: build-and-push-frontend
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ vars.REGISTRY }}/ahacker-images/retro/frontend:latest
+          tags: ${{ vars.REGISTRY }}/ahacker-images/retro:frontend-latest
