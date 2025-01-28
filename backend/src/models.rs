@@ -15,6 +15,7 @@ pub enum ServiceMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceConfig {
     pub mode: ServiceMode,
+    pub port: u16,
     pub db: Option<DbConfig>,
 }
 
@@ -52,6 +53,7 @@ impl Default for ServiceConfig {
     fn default() -> Self {
         ServiceConfig {
             mode: ServiceMode::MEMORY,
+            port: 8080,
             db: None,
         }
     }

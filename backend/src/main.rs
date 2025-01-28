@@ -126,6 +126,9 @@ async fn create_user(request: web::Json<models::LoginRequest>, context: Data<Con
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env::set_var("RUST_LOG", "info");
+    let config_path = env::var("CONFIG_FILE").unwrap_or_else(|_|
+        confy::get_configuration_file_path("retro", Some("services")).unwrap().to_str().unwrap().to_string()
+    );
     env_logger::init();
 
     let KeyPair {
@@ -133,11 +136,11 @@ async fn main() -> std::io::Result<()> {
         sk: secret_key,
     } = KeyPair::generate();
 
-    let service_config: ServiceConfig = confy::load("retro", Some("services")).expect("Failed to load configuration");
+    let service_config: ServiceConfig = confy::load_path(config_path.clone()).expect("Failed to load configuration");
     let retros: SharedRetros = Arc::new(RwLock::new(HashMap::new()));
     let users: SharedUsers = Arc::new(RwLock::new(HashMap::new()));
 
-    println!("Starting server from config file at: {:?}", confy::get_configuration_file_path("retro", Some("services")).unwrap());
+    println!("Starting server from config file at: {:?}", config_path);
     println!("Starting server in mode: {:?}", service_config.mode);
 
     let persistence_manager: PersistenceManager  = match service_config.mode {
@@ -152,6 +155,8 @@ async fn main() -> std::io::Result<()> {
     let schema = Arc::new(create_schema());
 
     let context = Arc::new(ContextBuilder::new(persistence_manager));
+    
+    let address = format!("0.0.0.0:{}", service_config.port);
 
     HttpServer::new(move || {
         let authority = Authority::<auth::Claims, Ed25519, _, _>::new()
@@ -183,6 +188,7 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/login").route(web::post().to(login)))
             .service(web::resource("/signup").route(web::post().to(create_user)))
             .service(web::resource("/subscriptions").route(web::get().to(subscriptions)))
+            .service(web::resource("/").route(web::get().to(homepage)))
             .use_jwt(authority, web::scope("")
                 .service(
                     web::resource("/graphql")
@@ -194,7 +200,7 @@ async fn main() -> std::io::Result<()> {
                 )
             .default_service(web::to(homepage))
     })
-    .bind("127.0.0.1:8000")?
+    .bind(address)?
     .run()
     .await
 }
