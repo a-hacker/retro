@@ -25,7 +25,7 @@ use juniper_graphql_ws::ConnectionConfig;
 
 use derive_more::derive::{Display, Error};
 
-use models::{ServiceConfig, ServiceMode, SharedRetros, SharedUsers};
+use models::{ServiceConfig, ServiceMode, SharedRetros, SharedUsers, User};
 use mongodb::bson::oid::ObjectId;
 use schema::{create_schema, Schema};
 
@@ -138,7 +138,12 @@ async fn main() -> std::io::Result<()> {
 
     let service_config: ServiceConfig = confy::load_path(config_path.clone()).expect("Failed to load configuration");
     let retros: SharedRetros = Arc::new(RwLock::new(HashMap::new()));
-    let users: SharedUsers = Arc::new(RwLock::new(HashMap::new()));
+
+    let default_users = HashMap::from([(ObjectId::new(), User {
+        _id: ObjectId::new(),
+        username: "admin".to_string(),
+    })]);
+    let users: SharedUsers = Arc::new(RwLock::new(default_users));
 
     println!("Starting server from config file at: {:?}", config_path);
     println!("Starting server in mode: {:?}", service_config.mode);
