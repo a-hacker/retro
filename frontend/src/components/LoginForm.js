@@ -4,13 +4,14 @@ import axios from 'axios';
 
 const LoginForm = ({ onSave }) => {
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
+
+  const backend_address = process.env.REACT_APP_BACKEND_URI || 'http://localhost:8080';
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://localhost:8000/login', { username });
+      const response = await axios.post(`${backend_address}/login`, { username });
       
       sessionStorage.setItem('access_token', response.headers['access_token']);
       sessionStorage.setItem('refresh_token', response.headers['refresh_token']);
