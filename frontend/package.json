@@ -2,7 +2,7 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
-  "proxy": "http://localhost:8000",
+  "proxy": "http://localhost:8080",
   "dependencies": {
     "@apollo/client": "^3.11.10",
     "@emotion/react": "^11.13.5",

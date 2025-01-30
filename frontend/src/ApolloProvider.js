@@ -14,15 +14,18 @@ import { getMainDefinition } from '@apollo/client/utilities';
 import { createClient } from 'graphql-ws';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 
+const backend_address = process.env.REACT_APP_BACKEND_URI || 'http://localhost:8080';
+const websocket_address = process.env.REACT_APP_WEBSOCKET_URI || 'ws://localhost:8080';
+
 // Create an http link to the GraphQL server
 const httpLink = createHttpLink({
-  uri: 'http://localhost:8000/graphql', // Adjust if your backend is hosted elsewhere
+  uri: `${backend_address}/graphql`,
 });
 
 // WebSocket link for subscriptions
 const wsLink = new GraphQLWsLink(
   createClient({
-    url: 'ws://localhost:8000/subscriptions', // Backend WebSocket endpoint
+    url: `${websocket_address}/subscriptions`,
     connectionParams: () => ({
       access_token: sessionStorage.getItem('access_token'),
     })
@@ -48,7 +51,7 @@ const authLink = new ApolloLink((operation, forward) => {
   const refresh_token = sessionStorage.getItem('refresh_token')
 
   operation.setContext(({ headers }) => ({ headers: {
-    Authorization: access_token,
+    access_token: access_token,
     refresh_token: refresh_token,
     ...headers,
   }}));
