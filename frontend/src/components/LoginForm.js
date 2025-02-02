@@ -11,10 +11,10 @@ const LoginForm = ({ onSave }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(`${backend_address}/login`, { username });
+      const response = await axios.post(`${backend_address}/api/v1/auth/login`, { username });
       
-      sessionStorage.setItem('access_token', response.headers['access_token']);
-      sessionStorage.setItem('refresh_token', response.headers['refresh_token']);
+      sessionStorage.setItem('access_token', response.data['access_token']);
+      sessionStorage.setItem('refresh_token', response.data['refresh_token']);
       onSave(username);
     } catch (err) {
       setError('Login failed. Please check your username and password.');
