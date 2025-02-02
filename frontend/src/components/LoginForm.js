@@ -4,6 +4,7 @@ import axios from 'axios';
 
 const LoginForm = ({ onSave }) => {
   const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
 
   const backend_address = process.env.REACT_APP_BACKEND_URI || 'http://localhost:8080';
@@ -11,7 +12,7 @@ const LoginForm = ({ onSave }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(`${backend_address}/api/v1/auth/login`, { username });
+      const response = await axios.post(`${backend_address}/api/v1/auth/login`, { username, password});
       
       sessionStorage.setItem('access_token', response.data['access_token']);
       sessionStorage.setItem('refresh_token', response.data['refresh_token']);
@@ -36,6 +37,14 @@ const LoginForm = ({ onSave }) => {
         label="Username"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
+        required
+      />
+
+      <TextField
+        label="Password"
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
         required
       />
 
