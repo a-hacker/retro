@@ -1,5 +1,3 @@
-#![feature(async_closure)]
-
 mod models;
 mod schema;
 mod context;
