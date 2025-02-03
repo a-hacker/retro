@@ -14,6 +14,8 @@ use actix_web::{
     error, middleware, web::{self, Data}, App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use auth::Claims;
+use config::{Config, Environment, File, FileFormat};
+use dotenvy::dotenv;
 use juniper::InputValue;
 use jwt_compact::{prelude::*, alg::{Hs512, Hs512Key}};
 
@@ -24,7 +26,7 @@ use juniper_graphql_ws::ConnectionConfig;
 
 use derive_more::derive::{Display, Error};
 
-use models::{ServiceConfig, ServiceMode, SharedRetros, SharedUsers, User};
+use models::{ServiceMode, SharedRetros, SharedUsers, User};
 use mongodb::bson::oid::ObjectId;
 use schema::{create_schema, Schema};
 
@@ -102,32 +104,36 @@ async fn subscriptions(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    dotenv().ok();
     env::set_var("RUST_LOG", "info");
-    let config_path = env::var("CONFIG_FILE").unwrap_or_else(|_|
-        confy::get_configuration_file_path("retro", Some("services")).unwrap().to_str().unwrap().to_string()
-    );
     env_logger::init();
+
+    let config_file = std::env::var("CONFIG_FILE").unwrap_or("services.toml".to_string());
+    println!("Starting server from config file at: {:?}", config_file);
+    let conf = Config::builder()
+        .add_source(File::new(&config_file, FileFormat::Toml).required(false))
+        .add_source(Environment::default())
+        .build().expect("Failed to build config");
+    let service_config: models::ServiceConfig = conf.try_deserialize().expect("Failed to deserialize config");
+    let retro_config = service_config.retro.clone().unwrap_or_default();
 
     let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let secret_key = Hs512Key::new(jwt_secret.as_bytes());
 
-    let service_config: ServiceConfig = confy::load_path(config_path.clone()).expect("Failed to load configuration");
     let retros: SharedRetros = Arc::new(RwLock::new(HashMap::new()));
-
     let default_users = HashMap::from([(ObjectId::new(), User {
         _id: ObjectId::new(),
         username: "admin".to_string(),
     })]);
     let users: SharedUsers = Arc::new(RwLock::new(default_users));
 
-    println!("Starting server from config file at: {:?}", config_path);
-    println!("Starting server in mode: {:?}", service_config.mode);
+    println!("Starting server in mode: {:?}", retro_config.mode);
 
-    let persistence_manager: PersistenceManager  = match service_config.mode {
-        ServiceMode::MEMORY => {
-            database::PersistenceManager::new_memory(&service_config, retros.clone(), users.clone())
+    let persistence_manager: PersistenceManager  = match retro_config.mode {
+        ServiceMode::Memory => {
+            database::PersistenceManager::new_memory(retros.clone(), users.clone())
         }
-        ServiceMode::MONGO => {
+        ServiceMode::Mongo => {
             database::PersistenceManager::new_mongo(&service_config).await
         }
     };
@@ -136,11 +142,13 @@ async fn main() -> std::io::Result<()> {
 
     let context = Arc::new(ContextBuilder::new(persistence_manager));
     
-    let address = format!("0.0.0.0:{}", service_config.port);
+    let address = format!("0.0.0.0:{}", retro_config.port);
 
     HttpServer::new(move || {
         let authority = Authority::<auth::Claims, Hs512, _, _>::new()
             .refresh_authorizer(|| async move { Err(ServiceError::AuthError.into()) })
+            .algorithm(Hs512)
+            .time_options(TimeOptions::from_leeway(chrono::Duration::minutes(15)))
             .enable_header_tokens(true)
             .enable_cookie_tokens(false)
             .access_token_name("access_token")

@@ -246,16 +246,6 @@ pub struct MutationRoot;
 
 #[juniper::graphql_object(context = Context)]
 impl MutationRoot {
-    async fn create_user(context: &Context, input: CreateUserInput) -> User {
-        let user_id = ObjectId::new();
-        let user = User {
-            username: input.username,
-            _id: user_id
-        };
-        context.persistence_manager.create_user(user.clone()).await.unwrap();
-        user
-    }
-
     // Create a new retro
     async fn create_retro(context: &Context, input: CreateRetroInput) -> Retro {
         let new_id = ObjectId::new();
