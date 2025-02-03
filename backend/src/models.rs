@@ -7,16 +7,15 @@ use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServiceMode {
-    MEMORY,
-    MONGO
+    Memory,
+    Mongo
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ServiceConfig {
-    pub mode: ServiceMode,
-    pub port: u16,
     pub db: Option<DbConfig>,
+    pub retro: Option<RetroConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,12 +48,17 @@ impl Into<mongodb::options::ClientOptions> for DbConfig {
     }
 }
 
-impl Default for ServiceConfig {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetroConfig {
+    pub mode: ServiceMode,
+    pub port: u16,
+}
+
+impl Default for RetroConfig {
     fn default() -> Self {
-        ServiceConfig {
-            mode: ServiceMode::MEMORY,
+        RetroConfig {
+            mode: ServiceMode::Memory,
             port: 8080,
-            db: None,
         }
     }
 }

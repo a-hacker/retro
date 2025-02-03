@@ -16,8 +16,8 @@ function App() {
           <CssBaseline />
           <Container maxWidth="100%" disableGutters>
             <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/retros/:id" element={<RetroPage />} />
+              <Route path="/retro" element={<HomePage />} />
+              <Route path="/retro/:id" element={<RetroPage />} />
             </Routes>
           </Container>
         </Router>

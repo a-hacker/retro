@@ -9,14 +9,15 @@ mod auth;
 use std::{collections::HashMap, env, sync::{Arc, RwLock}, time::Duration};
 
 use actix_cors::Cors;
-use actix_jwt_auth_middleware::{use_jwt::UseJWTOnApp, AuthError, AuthResult, Authority, TokenSigner};
+use actix_jwt_auth_middleware::{use_jwt::UseJWTOnApp, Authority};
 use actix_web::{
     error, middleware, web::{self, Data}, App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use auth::Claims;
-use ed25519_compact::{KeyPair, PublicKey};
+use config::{Config, Environment, File, FileFormat};
+use dotenvy::dotenv;
 use juniper::InputValue;
-use jwt_compact::{prelude::*, alg::Ed25519};
+use jwt_compact::{prelude::*, alg::{Hs512, Hs512Key}};
 
 use context::ContextBuilder;
 use database::PersistenceManager;
@@ -25,7 +26,7 @@ use juniper_graphql_ws::ConnectionConfig;
 
 use derive_more::derive::{Display, Error};
 
-use models::{ServiceConfig, ServiceMode, SharedRetros, SharedUsers, User};
+use models::{ServiceMode, SharedRetros, SharedUsers, User};
 use mongodb::bson::oid::ObjectId;
 use schema::{create_schema, Schema};
 
@@ -71,9 +72,9 @@ enum ServiceError {
 
 impl error::ResponseError for ServiceError {}
 
-fn validate_access_token(token_string: &str, public_key: &PublicKey) -> Result<Claims, ServiceError> {
+fn validate_access_token(token_string: &str, public_key: &Hs512Key) -> Result<Claims, ServiceError> {
     let token = UntrustedToken::new(token_string).map_err(|_| ServiceError::AuthError)?;
-    let token: Token<auth::Claims> = Ed25519.validator(public_key).validate(&token).map_err(|_| ServiceError::AuthError)?;
+    let token: Token<auth::Claims> = Hs512.validator(public_key).validate(&token).map_err(|_| ServiceError::AuthError)?;
     Ok(token.claims().custom.clone())
 }
 
@@ -82,7 +83,7 @@ async fn subscriptions(
     stream: web::Payload,
     schema: Data<Schema>,
     context: Data<ContextBuilder>,
-    public_key: Data<PublicKey>
+    public_key: Data<Hs512Key>
 ) -> Result<HttpResponse, Error> {
     let schema = schema.into_inner();
 
@@ -101,58 +102,38 @@ async fn subscriptions(
     }).await
 }
 
-async fn login(request: web::Json<models::LoginRequest>, context: Data<ContextBuilder>, cookie_signer: web::Data<TokenSigner<Claims, Ed25519>>) -> AuthResult<HttpResponse> {
-    let user = context.persistence_manager.validate_user(&request).await.map_err(|_| AuthError::NoTokenSigner)?;
-    let claim = auth::Claims::new(user._id);
-    Ok(HttpResponse::Ok()
-        .append_header((cookie_signer.access_token_name(), cookie_signer.create_access_header_value(&claim)?))
-        .append_header((cookie_signer.refresh_token_name(), cookie_signer.create_refresh_header_value(&claim)?))
-        .body("You are now logged in"))
-}
-
-async fn create_user(request: web::Json<models::LoginRequest>, context: Data<ContextBuilder>, cookie_signer: web::Data<TokenSigner<Claims, Ed25519>>) -> AuthResult<HttpResponse> {
-    let new_user = models::User {
-        _id: ObjectId::new(),
-        username: request.username.clone(),
-    };
-    let user = context.persistence_manager.create_user(new_user).await.map_err(|_| AuthError::NoTokenSigner)?;
-    let claim = auth::Claims::new(user._id);
-    Ok(HttpResponse::Ok()
-        .append_header((cookie_signer.access_token_name(), cookie_signer.create_access_header_value(&claim)?))
-        .append_header((cookie_signer.refresh_token_name(), cookie_signer.create_refresh_header_value(&claim)?))
-        .body("You are now logged in"))
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    dotenv().ok();
     env::set_var("RUST_LOG", "info");
-    let config_path = env::var("CONFIG_FILE").unwrap_or_else(|_|
-        confy::get_configuration_file_path("retro", Some("services")).unwrap().to_str().unwrap().to_string()
-    );
     env_logger::init();
 
-    let KeyPair {
-        pk: public_key,
-        sk: secret_key,
-    } = KeyPair::generate();
+    let config_file = std::env::var("CONFIG_FILE").unwrap_or("services.toml".to_string());
+    println!("Starting server from config file at: {:?}", config_file);
+    let conf = Config::builder()
+        .add_source(File::new(&config_file, FileFormat::Toml).required(false))
+        .add_source(Environment::default())
+        .build().expect("Failed to build config");
+    let service_config: models::ServiceConfig = conf.try_deserialize().expect("Failed to deserialize config");
+    let retro_config = service_config.retro.clone().unwrap_or_default();
 
-    let service_config: ServiceConfig = confy::load_path(config_path.clone()).expect("Failed to load configuration");
+    let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+    let secret_key = Hs512Key::new(jwt_secret.as_bytes());
+
     let retros: SharedRetros = Arc::new(RwLock::new(HashMap::new()));
-
     let default_users = HashMap::from([(ObjectId::new(), User {
         _id: ObjectId::new(),
         username: "admin".to_string(),
     })]);
     let users: SharedUsers = Arc::new(RwLock::new(default_users));
 
-    println!("Starting server from config file at: {:?}", config_path);
-    println!("Starting server in mode: {:?}", service_config.mode);
+    println!("Starting server in mode: {:?}", retro_config.mode);
 
-    let persistence_manager: PersistenceManager  = match service_config.mode {
-        ServiceMode::MEMORY => {
-            database::PersistenceManager::new_memory(&service_config, retros.clone(), users.clone())
+    let persistence_manager: PersistenceManager  = match retro_config.mode {
+        ServiceMode::Memory => {
+            database::PersistenceManager::new_memory(retros.clone(), users.clone())
         }
-        ServiceMode::MONGO => {
+        ServiceMode::Mongo => {
             database::PersistenceManager::new_mongo(&service_config).await
         }
     };
@@ -161,22 +142,17 @@ async fn main() -> std::io::Result<()> {
 
     let context = Arc::new(ContextBuilder::new(persistence_manager));
     
-    let address = format!("0.0.0.0:{}", service_config.port);
+    let address = format!("0.0.0.0:{}", retro_config.port);
 
     HttpServer::new(move || {
-        let authority = Authority::<auth::Claims, Ed25519, _, _>::new()
-            .refresh_authorizer(|| async move { Ok(()) })
+        let authority = Authority::<auth::Claims, Hs512, _, _>::new()
+            .refresh_authorizer(|| async move { Err(ServiceError::AuthError.into()) })
+            .algorithm(Hs512)
+            .time_options(TimeOptions::from_leeway(chrono::Duration::minutes(15)))
             .enable_header_tokens(true)
             .enable_cookie_tokens(false)
-            .access_token_name("Authorization")
-            .token_signer(Some(
-                TokenSigner::new()
-                    .signing_key(secret_key.clone())
-                    .algorithm(Ed25519)
-                    .build()
-                    .expect(""),
-            ))
-            .verifying_key(public_key)
+            .access_token_name("access_token")
+            .verifying_key(secret_key.clone())
             .build()
             .expect("");
 
@@ -184,24 +160,22 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::from(retros.clone()))
             .app_data(Data::from(schema.clone()))
             .app_data(Data::from(context.clone()))
-            .app_data(Data::new(public_key))
+            .app_data(Data::new(secret_key.clone()))
             .wrap(
                 Cors::permissive()
             )
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
-            .service(web::resource("/login").route(web::post().to(login)))
-            .service(web::resource("/signup").route(web::post().to(create_user)))
-            .service(web::resource("/subscriptions").route(web::get().to(subscriptions)))
-            .service(web::resource("/").route(web::get().to(homepage)))
+            .service(web::resource("/api/v1/retro/subscriptions").route(web::get().to(subscriptions)))
+            .service(web::resource("/api/v1/retro").route(web::get().to(homepage)))
             .use_jwt(authority, web::scope("")
                 .service(
-                    web::resource("/graphql")
+                    web::resource("/api/v1/retro/graphql")
                         .route(web::post().to(graphql))
                         .route(web::get().to(graphql)),
                 )
-                .service(web::resource("/playground").route(web::get().to(playground)))
-                .service(web::resource("/graphiql").route(web::get().to(graphiql)))
+                .service(web::resource("/api/v1/retro/playground").route(web::get().to(playground)))
+                .service(web::resource("/api/v1/retro/graphiql").route(web::get().to(graphiql)))
                 )
             .default_service(web::to(homepage))
     })

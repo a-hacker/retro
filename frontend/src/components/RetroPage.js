@@ -251,7 +251,7 @@ const RetroPage = () => {
   const [leaveRetro] = useMutation(LEAVE_RETRO, {
     onCompleted: () => {
       enqueueSnackbar('Left retro successfully!', { variant: 'success' });
-      navigate('/');
+      navigate('/retro');
     },
     onError: (err) => {
       enqueueSnackbar(err.message || 'Failed to leave retro.', { variant: 'error' });

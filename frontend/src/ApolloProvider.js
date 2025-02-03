@@ -19,13 +19,13 @@ const websocket_address = process.env.REACT_APP_WEBSOCKET_URI || 'ws://localhost
 
 // Create an http link to the GraphQL server
 const httpLink = createHttpLink({
-  uri: `${backend_address}/graphql`,
+  uri: `${backend_address}/api/v1/retro/graphql`,
 });
 
 // WebSocket link for subscriptions
 const wsLink = new GraphQLWsLink(
   createClient({
-    url: `${websocket_address}/subscriptions`,
+    url: `${websocket_address}/api/v1/retro/subscriptions`,
     connectionParams: () => ({
       access_token: sessionStorage.getItem('access_token'),
     })

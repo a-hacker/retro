@@ -6,6 +6,12 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      CONFIG_FILE: /etc/config/services.toml
+      DB.PASSWORD: '${DB_PASSWORD}'
+    volumes:
+      - config:/etc/config
   frontend:
     build:
       context: ./frontend
@@ -14,4 +20,26 @@ services:
       - "3000:3000"
     environment:
       REACT_APP_BACKEND_URI: "http://localhost:8080"
+      REACT_APP_AUTH_URI: "http://localhost:8000"
       REACT_APP_WEBSOCKET_URI: "ws://localhost:8080"
+      DANGEROUSLY_DISABLE_HOST_CHECK: "true"
+  auth:
+    image: 'auth:latest'
+    ports:
+      - "8000:8000"
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      ROCKET_SECRET_KEY: ${ROCKET_SECRET_KEY}
+      CONFIG_FILE: /etc/config/services.toml
+      DB.PASSWORD: '${DB_PASSWORD}'
+    volumes:
+      - config:/etc/config
+
+volumes:
+  config:
+    driver: local
+    driver_opts:
+      type: none
+      device: ./config
+      o: bind

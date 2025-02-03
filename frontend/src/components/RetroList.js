@@ -100,7 +100,7 @@ const RetroList = ({ username }) => {
                 key={retro.id}
                 button
                 component={Link}
-                to={`/retros/${retro.id}`}
+                to={`/retro/${retro.id}`}
               >
                 <ListItemText
                   primary={retro.retroName}
