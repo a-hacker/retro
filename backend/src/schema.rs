@@ -6,7 +6,6 @@ use std::pin::Pin;
 use std::str::FromStr;
 use chrono::prelude::*;
 use tokio_stream::StreamExt;
-use uuid::Uuid;
 use std::collections::HashSet;
 
 #[juniper::graphql_object(context = Context)]
@@ -122,11 +121,6 @@ impl Retro {
 }
 
 #[derive(juniper::GraphQLInputObject)]
-pub struct CreateUserInput {
-    pub username: String,
-}
-
-#[derive(juniper::GraphQLInputObject)]
 pub struct CreateRetroInput {
     pub retro_name: String,
 }
@@ -136,12 +130,6 @@ pub struct AddCardInput {
     pub retro_id: String,
     pub lane_id: String,
     pub text: String,
-}
-
-#[derive(juniper::GraphQLInputObject)]
-pub struct LeaveRetroInput {
-    pub retro_id: Uuid,
-    pub user_id: String,
 }
 
 // Subscription root
