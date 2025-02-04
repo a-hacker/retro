@@ -7,7 +7,7 @@ const LoginForm = ({ onSave }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
 
-  const backend_address = process.env.REACT_APP_AUTH_URI || 'http://localhost:8000';
+  const backend_address = window._env_.REACT_APP_AUTH_URI || 'http://localhost:8000';
 
   const handleLogin = async (e) => {
     e.preventDefault();
