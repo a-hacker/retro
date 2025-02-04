@@ -14,8 +14,8 @@ import { getMainDefinition } from '@apollo/client/utilities';
 import { createClient } from 'graphql-ws';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 
-const backend_address = process.env.REACT_APP_BACKEND_URI || 'http://localhost:8080';
-const websocket_address = process.env.REACT_APP_WEBSOCKET_URI || 'ws://localhost:8080';
+const backend_address = window._env_.REACT_APP_BACKEND_URI || 'http://localhost:8080';
+const websocket_address = window._env_.REACT_APP_WEBSOCKET_URI || 'ws://localhost:8080';
 
 // Create an http link to the GraphQL server
 const httpLink = createHttpLink({
